@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useGameStore } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import Board from "../components/Board.js";
+import Dice, { useDiceRoll } from "../components/Dice.js";
 import Leaderboard from "../components/Leaderboard.js";
 
 /**
@@ -14,6 +15,7 @@ export default function DisplayPage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
   const { loading, error } = useRoomConnection(roomCode, "display");
   const { state } = useGameStore();
+  const diceInfo = useDiceRoll(state);
   const [yearEndBanner, setYearEndBanner] = useState<{ team: string; year: number; netIncome?: number } | null>(null);
   const [revealBanner, setRevealBanner] = useState<{
     team: string;
@@ -129,14 +131,19 @@ export default function DisplayPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6">
         <div>
-          <Board state={state} />
+          <Board state={state} dice={diceInfo.dice} rolling={diceInfo.rolling} />
         </div>
         <div className="space-y-4">
           <div className="bg-white rounded-2xl shadow p-4">
-            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Last dice roll</div>
-            {lastRoll ? (
-              <div className="text-3xl font-bold">
-                🎲 {(lastRoll.payload as any).dice[0]} + {(lastRoll.payload as any).dice[1]} = {(lastRoll.payload as any).total}
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Last dice roll</div>
+            {diceInfo.dice || lastRoll ? (
+              <div className="flex flex-col items-start gap-2">
+                <Dice dice={diceInfo.dice ?? (lastRoll!.payload as any).dice} rolling={diceInfo.rolling} size="md" />
+                {lastRoll && !diceInfo.rolling && (
+                  <div className="text-2xl font-bold">
+                    = {(lastRoll.payload as any).total}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-slate-400">No rolls yet.</div>

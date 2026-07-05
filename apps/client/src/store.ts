@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { io, type Socket } from "socket.io-client";
-import { api, clearSession, type GameState, type SessionInfo } from "./api.js";
+import { api, clearSession, getStoredSessionToken, type GameState, type SessionInfo } from "./api.js";
 
 export interface SocketError {
   code: string;
@@ -48,7 +48,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   connect: async (gameId) => {
     set({ gameId, loading: true, error: null });
-    const token = localStorage.getItem("amono.sessionToken");
+    const token = getStoredSessionToken();
     if (token) {
       try {
         const { session } = await api.getSession();

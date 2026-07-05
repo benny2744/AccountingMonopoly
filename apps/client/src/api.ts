@@ -5,7 +5,7 @@ export interface GameSettings {
   propertyAllocationRatio: number;
   startingCash: number;
   startingLoanLimit: number;
-  boardPreset: "simple";
+  boardPreset: "classic";
   journalEntryMode: "activeTeamOnly" | "bothTeams" | "autoPostCounterparty";
   allowStudentFullHint?: boolean;
   showScores?: boolean;
@@ -58,6 +58,11 @@ export interface Property {
   rent: number;
   ownerTeamId: string | null;
   isMortgaged: boolean;
+  kind: "street" | "railroad";
+  colorGroup?: string;
+  color?: string;
+  houseCost?: number;
+  houses: number;
 }
 
 export interface PendingAction {
@@ -129,8 +134,15 @@ export interface StatementsView {
   cashSummary: CashSummary;
 }
 
+const SESSION_KEY = "amono.sessionToken";
+const LEGACY_SESSION_KEY = "amono.sessionToken";
+
+function getSessionToken(): string | null {
+  return sessionStorage.getItem(SESSION_KEY) ?? localStorage.getItem(LEGACY_SESSION_KEY);
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("amono.sessionToken");
+  const token = getSessionToken();
   const r = await fetch(`/api${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -225,6 +237,12 @@ export const api = {
       body: JSON.stringify({ teamId }),
     }),
 
+  buildHouse: (gameId: string, teamId: string, propertyId: string) =>
+    req<{ state: GameState }>(`/games/${gameId}/build-house`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, propertyId }),
+    }),
+
   resolveEvent: (gameId: string, teamId: string, choice: string, amount?: number) =>
     req<{ state: GameState }>(`/games/${gameId}/resolve-event`, {
       method: "POST",
@@ -304,6 +322,11 @@ export const api = {
     }>(`/games/${gameId}/scores`),
   exportUrl: (gameId: string, format: "json" | "csv") => `/api/games/${gameId}/export?format=${format}`,
 
+  // Team management (lobby-only add/remove)
+  addTeam: (gameId: string) => req<{ team: Team }>(`/games/${gameId}/teams`, { method: "POST", body: "{}" }),
+  removeTeam: (gameId: string, teamId: string) =>
+    req<{ ok: boolean }>(`/games/${gameId}/teams/${teamId}`, { method: "DELETE" }),
+
   ledger: (gameId: string, teamId: string) =>
     req<{ accounts: any[]; tAccounts: TAccountRow[]; balances: any[] }>(`/games/${gameId}/teams/${teamId}/ledger`),
 
@@ -312,8 +335,13 @@ export const api = {
 };
 
 export function saveSession(token: string): void {
-  localStorage.setItem("amono.sessionToken", token);
+  sessionStorage.setItem(SESSION_KEY, token);
+  localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 export function clearSession(): void {
-  localStorage.removeItem("amono.sessionToken");
+  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(LEGACY_SESSION_KEY);
+}
+export function getStoredSessionToken(): string | null {
+  return getSessionToken();
 }

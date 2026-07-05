@@ -13,7 +13,7 @@ export default function CreateRoomPage() {
   const navigate = useNavigate();
   const [teacherPin, setTeacherPin] = useState("1234");
   const [difficulty, setDifficulty] = useState<"cash" | "accrual">("cash");
-  const [numberOfTeams, setNumberOfTeams] = useState(4);
+  const [numberOfTeams, setNumberOfTeams] = useState(2);
   const [ratio, setRatio] = useState<number>(0.5);
   const [startingCash, setStartingCash] = useState(1500);
   const [startingLoanLimit, setStartingLoanLimit] = useState(500);
@@ -64,7 +64,7 @@ export default function CreateRoomPage() {
             </div>
           </Field>
           <Field label={`Number of teams: ${numberOfTeams}`}>
-            <input type="range" min={2} max={6} value={numberOfTeams} onChange={(e) => setNumberOfTeams(Number(e.target.value))} className="w-full" />
+            <input type="range" min={2} max={4} value={numberOfTeams} onChange={(e) => setNumberOfTeams(Number(e.target.value))} className="w-full" />
           </Field>
           <Field label="Property allocation at start">
             <div className="flex gap-2">

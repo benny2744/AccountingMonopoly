@@ -33,6 +33,34 @@ export default function LobbyPage() {
     }
   }
 
+  async function addTeam() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addTeam(room!.gameId);
+      const fresh = await api.lookupRoom(roomCode);
+      setRoom(fresh);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeTeam(teamId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeTeam(room!.gameId, teamId);
+      const fresh = await api.lookupRoom(roomCode);
+      setRoom(fresh);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const joinUrl = lan && lan.lanIps[0] ? `http://${lan.lanIps[0]}:${lan.port}/join/${roomCode}` : `/join/${roomCode}`;
   const joinedTeams = room?.joinedTeams ?? 0;
   const canStart = joinedTeams >= 2;
@@ -81,7 +109,16 @@ export default function LobbyPage() {
       </div>
 
       <div className="bg-white rounded-2xl shadow p-6 mb-4">
-        <h2 className="font-semibold mb-3">Teams</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Teams ({room.teams.length}/4)</h2>
+          <button
+            onClick={addTeam}
+            disabled={busy || room.teams.length >= 4}
+            className="bg-indigo-600 text-white text-sm px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-40"
+          >
+            ➕ Add Team
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           {room.teams.map((t) => (
             <div key={t.id} className="rounded-lg border border-slate-200 p-3 flex items-center gap-3">
@@ -90,11 +127,19 @@ export default function LobbyPage() {
               <span className={`text-xs px-2 py-0.5 rounded-full ${t.joinedCount > 0 ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-500"}`}>
                 {t.joinedCount > 0 ? `${t.joinedCount} joined` : "waiting"}
               </span>
+              <button
+                onClick={() => removeTeam(t.id)}
+                disabled={busy || t.joinedCount > 0 || room.teams.length <= 2}
+                className="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 text-lg leading-none"
+                title={t.joinedCount > 0 ? "Cannot remove a team with students joined" : room.teams.length <= 2 ? "Need at least 2 teams" : "Remove team"}
+              >
+                ✕
+              </button>
             </div>
           ))}
         </div>
         <p className="text-sm text-slate-500 mt-3">
-          Students pick their team at <code>/join/{roomCode}</code>. Multiple students can share one team.
+          Students pick their team at <code>/join/{roomCode}</code>. Multiple students can share one team. Add up to 4 teams; remove unjoined slots any time before start.
         </p>
       </div>
 

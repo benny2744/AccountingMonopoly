@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useGameStore, api } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
@@ -9,9 +9,13 @@ import ActionModal from "../components/ActionModal.js";
 import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
 import YearEndPanel from "../components/YearEndPanel.js";
+import BuildPanel from "../components/BuildPanel.js";
+import Dice, { useDiceRoll } from "../components/Dice.js";
+import PropertiesView from "../components/PropertiesView.js";
+import CardRevealModal from "../components/CardRevealModal.js";
 import type { TeamView } from "../api.js";
 
-type Tab = "board" | "taccounts" | "statements";
+type Tab = "board" | "properties" | "taccounts" | "statements";
 
 export default function TeamDashboard() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
@@ -19,6 +23,12 @@ export default function TeamDashboard() {
   const { state, session } = useGameStore();
   const setSocketError = useGameStore((s) => s.setSocketError);
   const [tab, setTab] = useState<Tab>("board");
+  const [rollTrigger, setRollTrigger] = useState(false);
+  const diceInfo = useDiceRoll(state);
+
+  useEffect(() => {
+    if (rollTrigger && diceInfo.rolling) setRollTrigger(false);
+  }, [rollTrigger, diceInfo.rolling]);
 
   if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
   if (loading || !state) return <div className="p-8">Connecting to room {roomCode}…</div>;
@@ -29,6 +39,11 @@ export default function TeamDashboard() {
   const myYearEnd = state.yearEndPendings?.find((p) => p.teamId === myTeamId) ?? null;
   const teamsInYearEnd = state.yearEndPendings?.filter((p) => p.teamId !== myTeamId) ?? [];
   const isMyTurn = currentTeam != null && myTeamId === currentTeam.team.id;
+  // The receiver of a rent/transfer also journals — even when it isn't their turn.
+  const iShouldJournal =
+    !!myTeamId && !!state.pending && state.pending.status === "awaiting_journal" && state.pending.teamId === myTeamId;
+  const pendingTeam = state.pending ? state.teams.find((t) => t.team.id === state.pending!.teamId) : null;
+  const pendingTeamName = pendingTeam?.team.name;
 
   return (
     <div className="min-h-screen p-4">
@@ -50,7 +65,7 @@ export default function TeamDashboard() {
           </div>
         </div>
         <div className="flex gap-2">
-          {(["board", "taccounts", "statements"] as Tab[]).map((t) => (
+          {(["board", "properties", "taccounts", "statements"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -58,7 +73,7 @@ export default function TeamDashboard() {
                 tab === t ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
               }`}
             >
-              {t === "board" ? "Board" : t === "taccounts" ? "My T-Accounts" : "My Statements"}
+              {t === "board" ? "Board" : t === "properties" ? "Properties" : t === "taccounts" ? "My T-Accounts" : "My Statements"}
             </button>
           ))}
         </div>
@@ -105,27 +120,47 @@ export default function TeamDashboard() {
         <div className="space-y-4">
           {tab === "board" && (
             <>
-              <Board state={state} />
+              <Board
+                state={state}
+                dice={diceInfo.dice}
+                rolling={diceInfo.rolling || rollTrigger}
+                controls={
+                  state.game.status === "active" && isMyTurn && currentTeam ? (
+                    <TurnControls
+                      gameId={state.game.id}
+                      teamId={currentTeam.team.id}
+                      turnPhase={state.game.turnPhase}
+                      onError={setSocketError}
+                      onRollStart={() => setRollTrigger(true)}
+                    />
+                  ) : undefined
+                }
+              />
+              {isMyTurn && myTeamId && state.game.turnPhase === "awaiting_roll" && (
+                <BuildPanel state={state} teamId={myTeamId} />
+              )}
               {myYearEnd && myTeam && (
                 <YearEndPanel pending={myYearEnd} state={state} teamId={myTeam.team.id} />
               )}
-              {isMyTurn && currentTeam && state.pending && state.pending.status === "awaiting_journal" && (
+              {iShouldJournal && myTeam && state.pending && (
                 <JournalEntryPanel
                   key={state.pending.id}
                   gameId={state.game.id}
                   pending={state.pending}
-                  currentTeam={currentTeam}
+                  currentTeam={myTeam}
                   difficulty={state.game.difficulty}
                 />
               )}
               {isMyTurn && <ActionModal state={state} currentTeam={currentTeam} />}
-              {!isMyTurn && state.pending && state.pending.status === "awaiting_journal" && (
+              {!iShouldJournal && state.pending && state.pending.status === "awaiting_journal" && (
                 <div className="text-sm text-slate-600 italic">
-                  {currentTeam?.team.name} is recording a journal entry…
+                  {pendingTeamName ?? currentTeam?.team.name} is recording a journal entry…
                 </div>
               )}
+              {isMyTurn && <CardRevealModal pending={state.pending} />}
             </>
           )}
+          {tab === "properties" && myTeam && <PropertiesView state={state} teamView={myTeam} />}
           {tab === "taccounts" && myTeam && (
             <TAccountsView
               gameId={state.game.id}
@@ -148,36 +183,29 @@ export default function TeamDashboard() {
 
         <Sidebar state={state} selectedTeamId={myTeam?.team.id ?? null} onSelectTeam={() => undefined} />
       </div>
-
-      {state.game.status === "active" && isMyTurn && currentTeam && (
-        <BottomBar
-          gameId={state.game.id}
-          teamId={currentTeam.team.id}
-          turnPhase={state.game.turnPhase}
-          onError={setSocketError}
-        />
-      )}
     </div>
   );
 }
 
-function BottomBar({
+function TurnControls({
   gameId,
   teamId,
   turnPhase,
   onError,
+  onRollStart,
 }: {
   gameId: string;
   teamId: string;
   turnPhase: "awaiting_roll" | "resolving" | "awaiting_end";
   onError: (e: { code: string; message: string }) => void;
+  onRollStart?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   async function act(path: "roll" | "end-turn") {
     setBusy(true);
     try {
+      if (path === "roll") onRollStart?.();
       await (path === "roll" ? api.roll(gameId, teamId) : api.endTurn(gameId));
-      // State arrives via socket broadcast; nothing to set here.
     } catch (e) {
       onError({ code: "ERROR", message: (e as Error).message });
     } finally {
@@ -185,12 +213,12 @@ function BottomBar({
     }
   }
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl rounded-xl px-6 py-3 border border-slate-200">
+    <div className="bg-white shadow-md rounded-xl px-4 py-2 border border-slate-200 flex items-center gap-3">
       {turnPhase === "awaiting_end" ? (
         <button
           onClick={() => act("end-turn")}
           disabled={busy}
-          className="bg-slate-700 text-white px-6 py-2 rounded-lg font-semibold hover:bg-slate-800 disabled:opacity-50"
+          className="bg-slate-700 text-white px-5 py-2 rounded-lg font-semibold hover:bg-slate-800 disabled:opacity-50"
         >
           {busy ? "…" : "End Turn →"}
         </button>
@@ -198,7 +226,7 @@ function BottomBar({
         <button
           onClick={() => act("roll")}
           disabled={busy}
-          className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
+          className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
         >
           {busy ? "Rolling…" : "🎲 Roll Dice"}
         </button>

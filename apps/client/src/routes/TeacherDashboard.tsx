@@ -8,9 +8,10 @@ import Sidebar from "../components/Sidebar.js";
 import Leaderboard from "../components/Leaderboard.js";
 import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
+import PropertiesView from "../components/PropertiesView.js";
 import type { TeamView } from "../api.js";
 
-type Tab = "overview" | "taccounts" | "statements";
+type Tab = "overview" | "properties" | "taccounts" | "statements";
 
 export default function TeacherDashboard() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
@@ -127,7 +128,7 @@ export default function TeacherDashboard() {
       )}
 
       <div className="flex gap-2 mb-4">
-        {(["overview", "taccounts", "statements"] as Tab[]).map((t) => (
+        {(["overview", "properties", "taccounts", "statements"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -135,7 +136,7 @@ export default function TeacherDashboard() {
               tab === t ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
             }`}
           >
-            {t === "overview" ? "Overview" : t === "taccounts" ? "T-Accounts" : "Statements"}
+            {t === "overview" ? "Overview" : t === "properties" ? "Properties" : t === "taccounts" ? "T-Accounts" : "Statements"}
           </button>
         ))}
       </div>
@@ -152,6 +153,9 @@ export default function TeacherDashboard() {
           <Sidebar state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelectTeam={setSelectedTeamId} />
         </div>
       )}
+      {tab === "properties" && selectedTeam && (
+        <PropertiesView state={state} teamView={selectedTeam} />
+      )}
       {tab === "taccounts" && selectedTeam && (
         <TAccountsView
           gameId={state.game.id}
@@ -167,7 +171,7 @@ export default function TeacherDashboard() {
           refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
         />
       )}
-      {(tab === "taccounts" || tab === "statements") && (
+      {(tab === "properties" || tab === "taccounts" || tab === "statements") && (
         <TeamPicker state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelect={setSelectedTeamId} />
       )}
     </div>
