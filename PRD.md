@@ -140,17 +140,19 @@ This separation is essential.
 Do not implement the following in the first version:
 
 * Auctions
-* Houses/hotels
 * Complex mortgages
 * Depreciation
 * Bad debt
 * Inventory
-* Taxes
-* Trading properties
+* Tax-as-accounting systems
+* Trading properties between teams
 * AI opponent
 * Full authentication
 * Advanced animations
-* Real Monopoly board replication
+* Jail / Go-To-Jail / dice-based utility rent
+* Exact Hasbro artwork or trademarked property names
+
+**Shipped in MVP:** simplified houses/hotels (Buildings asset, full color-group rule), 40-space classic board with railroads and card-draw event spaces.
 
 ---
 
@@ -352,38 +354,16 @@ Use a simplified Monopoly-style board.
 
 Do not recreate the exact original Monopoly board for MVP. Use generic property names or configurable names.
 
-## 8.1 Suggested Simple Board
+## 8.1 Classic Board (shipped)
 
-Use 24 spaces instead of 40 for faster classroom play.
+The MVP uses a **40-space Monopoly-style board** (`boardPreset: "classic"`):
 
-Suggested layout:
+* **GO** at index 0 only — passing GO triggers year-end for that team (no separate checkpoint tile).
+* **24 streets** in eight color groups, **4 railroads**, **6 card spaces** (Community Chest / Chance — draw from the cash or accrual event deck), **2 tax tiles** (Income $200, Luxury $100).
+* Corner **Bank** stops (loan/repay) replace Jail; **Free Parking** is a rest space.
+* **Houses/hotels** (simplified): own a full color group to build; journal entry debits **Buildings** / credits **Cash**; rent = base × (1 + houses), hotel ×6; railroad rent scales 25/50/100/200.
 
-1. GO / Year Start
-2. Property A
-3. Cash Event
-4. Property B
-5. Bank
-6. Property C
-7. Cash/Accrual Event
-8. Property D
-9. Repair Space
-10. Property E
-11. Charity / Community Space
-12. Free Parking / Rest
-13. Property F
-14. Event
-15. Property G
-16. Bank
-17. Property H
-18. Road Closure
-19. Property I
-20. Event
-21. Property J
-22. Tax / Fee Space
-23. Property K
-24. Year-End Checkpoint / GO
-
-For MVP, passing or landing on GO triggers year-end for that team.
+The legacy 24-space `simple` preset is removed; delete `data/` when upgrading from older saves.
 
 ---
 

@@ -64,6 +64,19 @@ For classroom/LAN deployment, build the client and run only the server —
 students join via `http://<teacher-LAN-IP>:5000`. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+### Run with Docker (recommended for classrooms)
+
+The fastest path — no Node or pnpm install needed on the host.
+
+```bash
+docker compose up --build -d
+```
+
+Then open `http://localhost:5000` (or `http://<teacher-LAN-IP>:5000` from a
+student device). The SQLite database persists at `./data/game.db` on the host.
+
+Full instructions: [docs/DOCKER.md](docs/DOCKER.md).
+
 ### Resetting local state
 
 All session data lives in a SQLite file under `data/` (default
@@ -89,10 +102,28 @@ the schema on next start.
 - **Export**: JSON (full event-sourced record) and CSV (Excel-graded
   workbook with journal entries, balances, and scores) from the teacher
   dashboard.
+- **Classic 40-space board**: Monopoly-style color groups, railroads, card-draw
+  spaces (Community Chest / Chance), income & luxury tax, simplified
+  houses/hotels with `Buildings` journal entries, year-end on passing GO only.
+- **In-board player controls**: Roll Dice / End Turn buttons render inside the
+  board's center area (no viewport overlay); card draws pop up a themed modal
+  before the journal panel.
+- **Animated dice + piece movement**: tumbling 2D dice (~1.5s spin with face
+  cycling) and step-through token animation that begins once the dice settles.
+- **Two-sided journaling**: when a team pays rent (or settles a multi-team
+  event card), the **receiving team** also records their own journal entry
+  before the turn advances — no silent auto-posts. Teacher Reveal still
+  auto-posts to unblock the room.
+- **Lobby team management**: add up to 4 / remove down to 2 unjoined team
+  slots before the game starts; default 2 teams.
+- **Properties tab**: owned properties, house/hotel status, and rent tables for
+  each team and on the teacher dashboard.
+- **Multi-tab fix**: each browser tab keeps its own session token so teacher +
+  team testing in one browser no longer breaks roll dice.
 
 ## Known limitations (out of scope for MVP, PRD §4.4)
 
-Auctions, houses/hotels, property trading, depreciation, bad debt, inventory,
+Auctions, property trading, depreciation, bad debt, inventory,
 taxes-as-accounting, AI opponents, real authentication, exact Monopoly board,
 advanced animations, cloud deployment. The event card editor (PRD §26.5) is
 also out of scope.
@@ -133,7 +164,7 @@ apps/
   server/          Express + Socket.IO server, SQLite persistence, game services
 packages/
   shared/          Pure accounting engine, types, board presets, event card decks
-docs/              Development and deployment guides
+docs/              Development, deployment, and Docker guides
 PRD.md             Product requirements (source of truth)
 PLAN-00..05-*.md   Per-phase implementation plans
 ARCHITECTURE.md    System architecture, data flow, data model

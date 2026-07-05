@@ -7,6 +7,67 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **In-board player controls** (PRD §20.2): Roll Dice / End Turn buttons now
+  render inside the blank center of the game board instead of a viewport-fixed
+  overlay. `Board` accepts an optional `controls` React node plus threaded
+  `dice`/`rolling` props, keeping it decoupled from the store/api. DisplayPage
+  and TeacherDashboard remain read-only (no controls passed).
+- **Card-draw popup modal**: new `CardRevealModal` surfaces the event card's
+  title, description, amount, mode stripe (cash vs accrual), and teaching
+  point before the `JournalEntryPanel` takes over. Pure client-side reveal
+  keyed by pending id — no new server status, no schema change. `credit_method_modifier`
+  cards still auto-resolve with no modal.
+- **Receiver must journal rent and team-to-team transfers**: when team A pays
+  rent (or settles a `multi_team_pay` / `multi_team_collect` card) to team B,
+  the payer's correct entry now chains to a new `counterparty_entry` pending
+  for each receiver rather than being auto-posted. The turn stays in
+  `resolving` until every receiver has recorded their own journal entry, then
+  advances to `awaiting_end`. This is **always on** regardless of
+  `journalEntryMode`; see `PLAN-03-MULTIPLAYER.md`. Teacher **Reveal Answer**
+  still auto-posts every remaining counterparty so the teacher can unblock
+  the room. New `counterparty_pending` event type; new `chainedTo` /
+  `chainedToName` fields on the submit-journal response.
+- **Animated dice + piece movement**: dice tumble on the board for ~1.5s with
+  rapid face cycling and a CSS rotation keyframe (`die-tumble`); new `board`
+  size variant. Token step-through animation now waits for the dice to settle
+  before the piece begins moving. DisplayPage now uses the animated `Dice`
+  component (was plain text).
+- **Lobby team add/remove**: teachers can add (up to 4) and remove (down to
+  2) unjoined team slots from the lobby; joined teams cannot be removed.
+  `CreateRoomPage` defaults to 2 teams with a max-4 slider; new
+  `POST /:id/teams` and `DELETE /:id/teams/:teamId` routes.
+- **Properties tab**: new `PropertiesView` lists each team's owned properties
+  with house/hotel counts and full rent tables (street and railroad),
+  available on both TeamDashboard and TeacherDashboard.
+- **Buildable houses/hotels**: full-color-group rule, `BuildPanel` for the
+  active team during `awaiting_roll`, `properties.houses` column,
+  `streetRent` / `railroadRent` / `effectiveRent` helpers in the shared game
+  package.
+- **Docker setup**: `Dockerfile` (node:22-alpine, pnpm 9), `docker-compose.yml`,
+  `.dockerignore`, and `docs/DOCKER.md` for one-command local hosting.
+
+### Changed
+- `JournalEntryPanel` now renders for the **pending owner** regardless of
+  whose turn it is (was gated on `isMyTurn`), so receivers can journal out
+  of turn. A "waiting for {team} to record…" banner shows on the payer's side.
+- `ActionModal` overlay pattern reused by `CardRevealModal` for visual
+  consistency.
+
+### Tests
+- 6 new integration tests covering lobby add/remove rules, rent receiver
+  journaling, multi-team card chaining through every receiver, and teacher
+  reveal auto-posting all counterparties. Total 124/124 passing.
+
+---
+
+## [Previous]
+
+### Added
+- **Classic Monopoly board** (40 spaces): color-group streets, four railroads,
+  Community Chest / Chance card spaces (draw from event decks), income/luxury
+  tax tiles, simplified houses/hotels (`Buildings` asset, full-group rule),
+  year-end triggered only when **passing GO** (not a separate checkpoint tile).
+  Per-tab session tokens fix roll-dice 401 when multiple roles share one browser.
 - **Phase 5 — Classroom polish** (PRD §26.5): hints, scoring, export,
   projector polish, student-clarity pass, and the teacher runbook.
   - **Hints** (PRD §17.4): Hint button in `JournalEntryPanel` steps through

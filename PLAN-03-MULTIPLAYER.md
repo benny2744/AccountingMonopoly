@@ -43,7 +43,7 @@ Refactor Phase 2 so REST routes and socket handlers call the same service functi
 
 **Per-game action serialization**: wrap mutating service calls in a per-`gameId` in-process mutex (simple promise queue) so two students on one team clicking simultaneously can't double-apply. `node:sqlite` is synchronous (same property the plan originally assumed for better-sqlite3), which helps, but the queue guards multi-step service logic.
 
-**`journalEntryMode` setting:** stored in game settings but not yet read — `submitJournalEntry` unconditionally auto-posts counterparty entries. Implement mode switching in Phase 3 (respect `autoPostCounterparty` vs `activeTeamOnly` / `bothTeams` per PRD §17.1) before multiplayer exposes rent across teams at scale.
+**`journalEntryMode` setting:** the setting is now effectively cosmetic for rent and team-to-team transfers. As of the receiver-journals change, the payer's correct entry chains to a new `counterparty_entry` pending action for each receiver (rent, `multi_team_pay`, `multi_team_collect`), and the turn stays in `resolving` until every receiver has journalled — **regardless of the mode value**. `activeTeamOnly` and `autoPostCounterparty` thus behave like `bothTeams`. The setting is retained to avoid a schema migration and remains the documented default (`autoPostCounterparty`); only teacher **Reveal Answer** still auto-posts every remaining counterparty so the teacher can unblock the room.
 
 ## 3. Join flow & lobby (PRD §20.1–§20.3)
 

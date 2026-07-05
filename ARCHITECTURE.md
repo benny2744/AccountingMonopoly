@@ -154,6 +154,14 @@ trail clean.
 - **Client** is currently exercised through the integration flow; a dedicated
   component test layer can be added without changing this architecture.
 
+## Board layout
+
+Games use the **classic** 40-space preset (`packages/shared/src/game/boardPresets.ts`):
+28 ownable properties (24 streets + 4 railroads), six card-draw spaces, two tax
+tiles, and corner GO / Bank / Free Parking tiles. Year-end fires when a team
+**passes GO**, not when landing on a dedicated checkpoint. Rent scales with
+houses (simplified multiplier) and railroad ownership count.
+
 ## Out of scope (MVP)
 
 Auctions, houses/hotels, property trading, depreciation, bad debt, inventory,

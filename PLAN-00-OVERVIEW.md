@@ -39,4 +39,4 @@ Applies mainly to Phases 2, 3, 5:
 
 ## Out of scope for MVP (PRD §4.4, §30.2)
 
-Auctions, houses/hotels, property trading, mortgages beyond a flag, depreciation, bad debt, inventory, taxes-as-accounting, AI opponents, real auth, exact Monopoly board, advanced animations, cloud deployment.
+Auctions, property trading, depreciation, bad debt, inventory, taxes-as-accounting, AI opponents, real auth, exact Monopoly board, advanced animations, cloud deployment.
