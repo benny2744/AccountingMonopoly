@@ -138,6 +138,36 @@ export function runMigrations(): void {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_game ON sessions(game_id);
 
+    -- Phase 4: accrual items owed to/from non-player parties (bank-backed
+    -- conference revenue, repair bills, prepaid recognition, etc.). These
+    -- settle at year-end. Player-to-player credit still uses credit_balances.
+    CREATE TABLE IF NOT EXISTS deferred_settlements (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      account_name TEXT NOT NULL,
+      counter_account_name TEXT,
+      source_event_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL,
+      settled_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_deferred_team_open ON deferred_settlements(team_id, status);
+
+    -- Phase 4: per-team year-end snapshot of statements (Phase 5 will add score).
+    CREATE TABLE IF NOT EXISTS year_snapshots (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      year INTEGER NOT NULL,
+      statements TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(team_id, year)
+    );
+
     -- Indexes for hot per-request queries: event seq lookup, account resolution,
     -- team ledger reads.
     CREATE INDEX IF NOT EXISTS idx_game_events_game_seq ON game_events(game_id, seq);
@@ -148,6 +178,13 @@ export function runMigrations(): void {
   // Backfill turn_phase for databases created before this column existed.
   try {
     db.exec(`ALTER TABLE games ADD COLUMN turn_phase TEXT NOT NULL DEFAULT 'awaiting_roll'`);
+  } catch {
+    // Column already present.
+  }
+  // Phase 4: per-team flag indicating the year-end checklist should fire once
+  // their current landing action resolves (set when they pass GO).
+  try {
+    db.exec(`ALTER TABLE teams ADD COLUMN pending_year_end INTEGER NOT NULL DEFAULT 0`);
   } catch {
     // Column already present.
   }

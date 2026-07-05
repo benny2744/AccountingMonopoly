@@ -6,6 +6,7 @@ import { getGameState } from "./services/stateService.js";
 import {
   getSession,
   assertEndTurnSession,
+  assertSelfTeamOrTeacher,
   type Session,
   type SessionRole,
 } from "./services/sessionsService.js";
@@ -17,7 +18,9 @@ import {
   submitJournalEntry,
   endTurn,
   revealAnswer,
+  takeLoanForPendingFee,
 } from "./services/turnService.js";
+import { startYearEnd, resolveYearEndStep } from "./services/yearEndService.js";
 import { pauseGame, resumeGame, forceNextTurn } from "./services/gameService.js";
 import { withGameLock } from "./services/gameLock.js";
 
@@ -94,11 +97,38 @@ export function createSocketServer(httpServer: HttpServer): SocketServer {
       }),
     );
 
-    socket.on("request_year_end", (_raw, ack) =>
-      handle(socket, session, "request_year_end", {}, ack, () => {
-        // Year-end full flow lands in Phase 4; year is currently incremented
-        // automatically on GO pass. Hook here so the client can call it.
-        return { state: getGameState(session.gameId) };
+    socket.on("request_year_end", (raw, ack) =>
+      handle(socket, session, "request_year_end", raw, ack, () => {
+        const { teamId } = z.object({ teamId: z.string() }).parse(raw);
+        assertSelfTeamOrTeacher(session, session.gameId, teamId);
+        return withGameLock(session.gameId, () => {
+          startYearEnd(session.gameId, teamId);
+          return { state: getGameState(session.gameId) };
+        });
+      }),
+    );
+
+    socket.on("resolve_year_end_step", (raw, ack) =>
+      handle(socket, session, "resolve_year_end_step", raw, ack, () => {
+        const { teamId, choice } = z
+          .object({ teamId: z.string(), choice: z.enum(["pay_cash", "roll_to_loan", "continue"]).default("continue") })
+          .parse(raw);
+        assertSelfTeamOrTeacher(session, session.gameId, teamId);
+        return withGameLock(session.gameId, () => {
+          resolveYearEndStep(session.gameId, teamId, choice);
+          return { state: getGameState(session.gameId) };
+        });
+      }),
+    );
+
+    socket.on("request_loan_for_fee", (raw, ack) =>
+      handle(socket, session, "request_loan_for_fee", raw, ack, () => {
+        const { amount } = z.object({ amount: z.number().int().positive() }).parse(raw);
+        requireTeam(session);
+        return withGameLock(session.gameId, () => {
+          takeLoanForPendingFee(session.gameId, session.teamId!, amount);
+          return { state: getGameState(session.gameId) };
+        });
       }),
     );
 

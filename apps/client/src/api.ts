@@ -80,6 +80,7 @@ export interface GameState {
   spaces: BoardSpace[];
   properties: Property[];
   pending: PendingAction | null;
+  yearEndPendings: PendingAction[];
   events: GameEvent[];
 }
 
@@ -238,6 +239,32 @@ export const api = {
   forceNextTurn: (gameId: string) => req<GameState>(`/games/${gameId}/force-next-turn`, { method: "POST", body: "{}" }),
   revealAnswer: (gameId: string) =>
     req<{ state: GameState }>(`/games/${gameId}/reveal-answer`, { method: "POST", body: "{}" }),
+
+  // Phase 4
+  loanForFee: (gameId: string, teamId: string, amount: number) =>
+    req<{ state: GameState }>(`/games/${gameId}/loan-for-fee`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, amount }),
+    }),
+  startYearEnd: (gameId: string, teamId: string) =>
+    req<{ state: GameState }>(`/games/${gameId}/year-end/start`, {
+      method: "POST",
+      body: JSON.stringify({ teamId }),
+    }),
+  resolveYearEndStep: (gameId: string, teamId: string, choice: "pay_cash" | "roll_to_loan" | "continue") =>
+    req<{ state: GameState }>(`/games/${gameId}/year-end/resolve-step`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, choice }),
+    }),
+  setCreditLimit: (gameId: string, teamId: string, creditLimit: number) =>
+    req<GameState>(`/games/${gameId}/credit-limit`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, creditLimit }),
+    }),
+  arapSchedule: (gameId: string, teamId: string) =>
+    req<{ rows: { type: "receivable" | "payable"; otherTeam: string | null; amount: number; source: string; status: string }[] }>(
+      `/games/${gameId}/teams/${teamId}/arap`,
+    ),
 
   ledger: (gameId: string, teamId: string) =>
     req<{ accounts: any[]; tAccounts: TAccountRow[]; balances: any[] }>(`/games/${gameId}/teams/${teamId}/ledger`),

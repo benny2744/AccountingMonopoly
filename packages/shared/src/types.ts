@@ -42,6 +42,8 @@ export interface Team {
   currentYear: number;
   creditLimit: number;
   isActive: boolean;
+  /** Phase 4: set when this team should run the year-end checklist next. */
+  pendingYearEnd?: boolean;
 }
 
 export type BoardSpaceType =
@@ -130,6 +132,7 @@ export type GameEventType =
   | "interest_charged"
   | "year_end_started"
   | "year_end_completed"
+  | "year_end_ar_collected"
   | "teacher_override";
 
 export interface GameEvent {

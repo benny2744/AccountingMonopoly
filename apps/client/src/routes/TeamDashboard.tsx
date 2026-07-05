@@ -8,6 +8,7 @@ import JournalEntryPanel from "../components/JournalEntryPanel.js";
 import ActionModal from "../components/ActionModal.js";
 import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
+import YearEndPanel from "../components/YearEndPanel.js";
 import type { TeamView } from "../api.js";
 
 type Tab = "board" | "taccounts" | "statements";
@@ -25,6 +26,8 @@ export default function TeamDashboard() {
   const myTeamId = session?.teamId ?? null;
   const myTeam = state.teams.find((t) => t.team.id === myTeamId) ?? null;
   const currentTeam = state.teams.find((t) => t.team.id === state.game.currentTeamId) ?? null;
+  const myYearEnd = state.yearEndPendings?.find((p) => p.teamId === myTeamId) ?? null;
+  const teamsInYearEnd = state.yearEndPendings?.filter((p) => p.teamId !== myTeamId) ?? [];
   const isMyTurn = currentTeam != null && myTeamId === currentTeam.team.id;
 
   return (
@@ -73,11 +76,23 @@ export default function TeamDashboard() {
         </div>
       )}
 
+      {teamsInYearEnd.length > 0 && (
+        <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-3 text-purple-800 text-sm">
+          {teamsInYearEnd.map((p) => {
+            const name = state.teams.find((t) => t.team.id === p.teamId)?.team.name ?? "A team";
+            return <div key={p.teamId}>{name} is closing their books for year-end…</div>;
+          })}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
         <div className="space-y-4">
           {tab === "board" && (
             <>
               <Board state={state} />
+              {myYearEnd && myTeam && (
+                <YearEndPanel pending={myYearEnd} state={state} teamId={myTeam.team.id} />
+              )}
               {isMyTurn && currentTeam && state.pending && state.pending.status === "awaiting_journal" && (
                 <JournalEntryPanel gameId={state.game.id} pending={state.pending} currentTeam={currentTeam} difficulty={state.game.difficulty} />
               )}
@@ -100,8 +115,12 @@ export default function TeamDashboard() {
             <StatementsView
               gameId={state.game.id}
               teamView={myTeam}
+              difficulty={state.game.difficulty}
               refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
             />
+          )}
+          {tab !== "board" && myYearEnd && myTeam && (
+            <YearEndPanel pending={myYearEnd} state={state} teamId={myTeam.team.id} />
           )}
         </div>
 

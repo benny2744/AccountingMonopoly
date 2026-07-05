@@ -33,6 +33,9 @@ export default function Sidebar({
                   </div>
                   <div className="text-xs text-slate-500">
                     ${tv.cash} cash · {tv.propertyCount} props{tv.loanPayable > 0 ? ` · loan $${tv.loanPayable}` : ""}
+                    {(tv.accountsReceivable > 0 || tv.accountsPayable > 0) && (
+                      <> · <span className="text-emerald-700">A/R ${tv.accountsReceivable}</span> / <span className="text-rose-700">A/P ${tv.accountsPayable}</span></>
+                    )}
                   </div>
                 </div>
               </button>

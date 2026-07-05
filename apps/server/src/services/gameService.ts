@@ -246,8 +246,8 @@ export function forceNextTurn(gameId: string): Game {
   if (game.status !== "active" && game.status !== "paused") {
     throw new GameError("INVALID_STATE", `Game is ${game.status}`);
   }
-  // Close any open pending action so endTurn will accept.
-  getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE game_id = ? AND status != 'done'").run(gameId);
+  // Close turn pendings only — year-end checklists stay open per team.
+  getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE game_id = ? AND status != 'done' AND kind != 'year_end'").run(gameId);
   const teams = queries.teamsByGame(gameId);
   const idx = teams.findIndex((t) => t.id === game.currentTeamId);
   const next = teams[(idx + 1) % teams.length]!;

@@ -3,8 +3,9 @@ import { Router, type Router as RouterType } from "express";
 import { z } from "zod";
 import { networkInterfaces } from "node:os";
 import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn } from "../services/gameService.js";
-import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer } from "../services/turnService.js";
+import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee } from "../services/turnService.js";
 import { getGameState, ledgerView, statementsView } from "../services/stateService.js";
+import { startYearEnd, resolveYearEndStep } from "../services/yearEndService.js";
 import { AccountingError } from "../services/accountingService.js";
 import { queries } from "../db/queries.js";
 import { accounting, game as gameData } from "@amono/shared";
@@ -16,10 +17,13 @@ import {
   requireTeacherSession,
   requireTeamSession,
   requireEndTurnSession,
+  requireSelfTeamOrTeacher,
+  requireYearEndResolveSession,
   countJoinedTeams,
   teamSessionCounts,
   type Session,
 } from "../services/sessionsService.js";
+import { logEvent } from "../services/eventLog.js";
 import { withGameLock } from "../services/gameLock.js";
 
 export const gamesRouter: RouterType = Router();
@@ -274,6 +278,84 @@ gamesRouter.post("/:gameId/reveal-answer", async (req, res, next) => {
     await withGameLock(req.params.gameId, () => revealAnswer(req.params.gameId));
     broadcast(req, req.params.gameId);
     res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---- Phase 4: year-end, fee-loan softlock, credit-limit override ----
+
+const loanForFeeSchema = z.object({ teamId: z.string(), amount: z.number().int().positive() });
+gamesRouter.post("/:gameId/loan-for-fee", async (req, res, next) => {
+  try {
+    const { teamId, amount } = loanForFeeSchema.parse(req.body);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, teamId);
+    await withGameLock(req.params.gameId, () => takeLoanForPendingFee(req.params.gameId, teamId, amount));
+    broadcast(req, req.params.gameId);
+    res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const yearEndStartSchema = z.object({ teamId: z.string() });
+gamesRouter.post("/:gameId/year-end/start", async (req, res, next) => {
+  try {
+    const { teamId } = yearEndStartSchema.parse(req.body);
+    requireSelfTeamOrTeacher(req.header("Authorization"), req.params.gameId, teamId);
+    await withGameLock(req.params.gameId, () => startYearEnd(req.params.gameId, teamId));
+    broadcast(req, req.params.gameId);
+    res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const yearEndStepSchema = z.object({
+  teamId: z.string(),
+  choice: z.enum(["pay_cash", "roll_to_loan", "continue"]).default("continue"),
+});
+gamesRouter.post("/:gameId/year-end/resolve-step", async (req, res, next) => {
+  try {
+    const { teamId, choice } = yearEndStepSchema.parse(req.body);
+    requireYearEndResolveSession(req.header("Authorization"), req.params.gameId, teamId);
+    await withGameLock(req.params.gameId, () => resolveYearEndStep(req.params.gameId, teamId, choice));
+    broadcast(req, req.params.gameId);
+    res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const creditLimitSchema = z.object({ teamId: z.string(), creditLimit: z.number().int().min(0) });
+gamesRouter.post("/:gameId/credit-limit", async (req, res, next) => {
+  try {
+    const { teamId, creditLimit } = creditLimitSchema.parse(req.body);
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const team = queries.teamsByGame(req.params.gameId).find((t) => t.id === teamId);
+    if (!team) throw new GameError("NOT_FOUND", "Team not found");
+    const oldLimit = team.creditLimit;
+    await withGameLock(req.params.gameId, () => {
+      queries.setTeamCreditLimit(teamId, creditLimit);
+      logEvent(req.params.gameId, null, "teacher_override", {
+        action: "credit_limit",
+        teamId,
+        oldLimit,
+        newLimit: creditLimit,
+      });
+    });
+    broadcast(req, req.params.gameId);
+    res.json(getGameState(req.params.gameId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+gamesRouter.get("/:gameId/teams/:teamId/arap", (req, res, next) => {
+  try {
+    const teams = queries.teamsByGame(req.params.gameId);
+    const cbs = queries.creditBalancesByGame(req.params.gameId);
+    res.json(accounting.generateARAPSchedule(req.params.teamId, teams, cbs));
   } catch (e) {
     next(e);
   }

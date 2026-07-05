@@ -49,9 +49,15 @@ Card handling extends Phase 2's `event_card` pending action:
 
 Teacher can also trigger for one/all teams (`request_year_end` / dashboard button).
 
-**Interaction with `turnPhase`:** Phase 2's `markPendingDone` sets `turnPhase = "awaiting_end"`. A multi-step year-end checklist must **not** call `markPendingDone` until the final step. Model the checklist as a **single `year_end` pending action** with a `steps` payload (current step index, remaining items); advance steps in place; only mark done and set `awaiting_end` (or a dedicated `year_end_complete` phase) after step 6.
+**Interaction with `turnPhase` (shipped):** The year-end checklist is a
+**per-team `year_end` pending** excluded from `pendingByGame`. It does not set
+`turnPhase = "resolving"` or block other teams. The rolling team finishes their
+landing action normally (`awaiting_end`); checklist steps auto-post as system
+entries and can be resolved at any time. A team with an open checklist cannot
+roll again until it is complete (`YEAR_END_OPEN`). Game state exposes open
+checklists via `yearEndPendings[]`.
 
-The team enters this year-end checklist; gameplay for that team pauses until complete (other teams keep playing — year-end is per-team, §14). Checklist steps generated from open items, each producing a journal entry the student must submit (validated like any other; **`journalEntryMode` must be implemented** — see Phase 3 — before year-end counterparty auto-posts are relied on):
+The team enters this year-end checklist; gameplay for that team pauses until complete (other teams keep playing — year-end is per-team, §14). Checklist steps are generated from open items and **auto-post as system entries** (see accepted deviations below). When a creditor collects player-credit A/R first, the bank-pays model rolls the debtor's A/P to Loan Payable (`rolled_to_loan`).
 
 1. **Collect A/R** — for each open `deferred_settlements` collect item and each open `credit_balances` where team is creditor: `Dr Cash / Cr Accounts Receivable` (`apPaidCash` creditor side).
 2. **Settle A/P** — for each open payable, the debtor chooses per item (modal): **pay cash** (`Dr A/P / Cr Cash`) or **roll to loan** (`Dr A/P / Cr Loan Payable`; creditor still gets `Dr Cash / Cr A/R` auto-posted — the bank pays them immediately, §12.3). The negative-cash guard in `postEntry` naturally rejects A/P pay-cash when cash is insufficient; **rolling to loan is the forced fallback** (consistent with PRD §12.3). Both options update `credit_balances.status` to `paid` / `rolled_to_loan`.
@@ -63,6 +69,12 @@ The team enters this year-end checklist; gameplay for that team pauses until com
 Cash-mode year-end (§14.1) is steps 4–6 only, with statements but no A/R-A/P schedule.
 
 Emit `game:year_end_started` / `game:year_end_completed`; the projector shows a "Team Blue completed Year 1 — Net Income $230" banner.
+
+**Accepted deviations (Phase 4 review):**
+
+- Year-end checklist steps **auto-post as system journal entries** (not student-submitted). Student-submitted year-end entries are deferred to a future phase; classroom pace is preserved.
+- **`credit_method_modifier` cards** (Player Rent on Credit, Credit Line Payment) are informational no-ops at draw time — they log the card and end the turn without a journal pending. The one-shot payment-method flag that would force the next qualifying payment is **deferred** (same as PRD nice-to-have perks).
+- **Per-team year-end concurrency:** each team owns a separate `year_end` pending excluded from the main turn pending slot; other teams keep playing while a team works through their checklist. Year-end activates immediately in `roll()` when passing GO or landing on GO.
 
 ## 6. UI additions
 
@@ -78,6 +90,11 @@ Emit `game:year_end_started` / `game:year_end_completed`; the projector shows a 
   - Credit limit exceeded → rejected with error; teacher override raises limit → allowed.
   - Full year-end: seed A/R + A/P + prepaid, run checklist with mixed choices (one A/P cash, one rolled to loan), assert all clearing accounts hit 0, Loan Payable includes the rollover, statements snapshot balances, closing zeroes revenue/expense and rolls into Retained Earnings.
   - Attempt to use accrual accounts in cash mode rejected (§27.3).
+  - **Review-fix coverage** (also in `accrual.integration.test.ts`): creditor-first
+    year-end clears debtor A/P via loan rollover; GO pass opens checklist same
+    turn; per-team concurrency (other teams roll while one team is in checklist);
+    `credit_method_modifier` no softlock; `forceNextTurn` past a card leaves no
+    orphan deferred row; year-end auth (self/teacher only).
 
 ## Acceptance (PRD §26.4)
 

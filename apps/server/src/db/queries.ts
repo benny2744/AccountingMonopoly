@@ -12,6 +12,7 @@ import type {
   TurnPhase,
 } from "@amono/shared";
 import { getDb } from "./client.js";
+import { uuid } from "../util/ids.js";
 
 // ---- Row types (snake_case from SQL) ----
 interface GameRow {
@@ -37,6 +38,7 @@ interface TeamRow {
   credit_limit: number;
   is_active: number;
   join_order: number;
+  pending_year_end: number;
 }
 interface SpaceRow {
   id: string;
@@ -118,6 +120,20 @@ interface CBRow {
   settled_at: string | null;
 }
 
+interface DeferredRow {
+  id: string;
+  game_id: string;
+  team_id: string;
+  kind: string;
+  amount: number;
+  account_name: string;
+  counter_account_name: string | null;
+  source_event_id: string;
+  status: string;
+  created_at: string;
+  settled_at: string | null;
+}
+
 const parse = JSON.parse;
 
 export function rowToGame(r: GameRow): Game {
@@ -146,6 +162,7 @@ export function rowToTeam(r: TeamRow): Team {
     currentYear: r.current_year,
     creditLimit: r.credit_limit,
     isActive: r.is_active === 1,
+    pendingYearEnd: r.pending_year_end === 1,
   };
 }
 
@@ -262,6 +279,39 @@ export function rowToCB(r: CBRow): CreditBalance {
   };
 }
 
+/** Phase 4: a non-player settlement item owed to/from the bank or other non-team party. */
+export type DeferredKind = "collect_ar" | "pay_ap" | "recognize_prepaid";
+
+export interface DeferredSettlementRow {
+  id: string;
+  gameId: string;
+  teamId: string;
+  kind: DeferredKind;
+  amount: number;
+  accountName: string;
+  counterAccountName: string | null;
+  sourceEventId: string;
+  status: string;
+  createdAt: string;
+  settledAt: string | null;
+}
+
+export function rowToDeferred(r: DeferredRow): DeferredSettlementRow {
+  return {
+    id: r.id,
+    gameId: r.game_id,
+    teamId: r.team_id,
+    kind: r.kind as DeferredKind,
+    amount: r.amount,
+    accountName: r.account_name,
+    counterAccountName: r.counter_account_name,
+    sourceEventId: r.source_event_id,
+    status: r.status,
+    createdAt: r.created_at,
+    settledAt: r.settled_at,
+  };
+}
+
 // ---- Query helpers ----
 export const queries = {
   gameById(id: string): Game | null {
@@ -316,9 +366,23 @@ export const queries = {
   },
   pendingByGame(gameId: string): PendingActionRow | null {
     const r = getDb()
-      .prepare("SELECT * FROM pending_actions WHERE game_id = ? AND status != 'done' ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT * FROM pending_actions WHERE game_id = ? AND status != 'done' AND kind != 'year_end' ORDER BY created_at DESC LIMIT 1",
+      )
       .get(gameId) as PendingRow | undefined;
     return r ? rowToPending(r) : null;
+  },
+  yearEndPendingByTeam(teamId: string): PendingActionRow | null {
+    const r = getDb()
+      .prepare("SELECT * FROM pending_actions WHERE team_id = ? AND kind = 'year_end' AND status != 'done' LIMIT 1")
+      .get(teamId) as PendingRow | undefined;
+    return r ? rowToPending(r) : null;
+  },
+  yearEndPendingsByGame(gameId: string): PendingActionRow[] {
+    const rows = getDb()
+      .prepare("SELECT * FROM pending_actions WHERE game_id = ? AND kind = 'year_end' AND status != 'done' ORDER BY created_at")
+      .all(gameId) as PendingRow[];
+    return rows.map(rowToPending);
   },
   creditBalancesByGame(gameId: string): CreditBalance[] {
     const rows = getDb().prepare("SELECT * FROM credit_balances WHERE game_id = ?").all(gameId) as CBRow[];
@@ -332,5 +396,31 @@ export const queries = {
       .prepare("SELECT * FROM accounts WHERE team_id = ? AND name = ?")
       .get(teamId, accountName) as AccountRow | undefined;
     return r ? rowToAccount(r) : null;
+  },
+  // ---- Phase 4: deferred settlements & year snapshots ----
+  deferredByTeam(teamId: string, onlyOpen = false): DeferredSettlementRow[] {
+    const sql = onlyOpen
+      ? "SELECT * FROM deferred_settlements WHERE team_id = ? AND status = 'open' ORDER BY created_at"
+      : "SELECT * FROM deferred_settlements WHERE team_id = ? ORDER BY created_at";
+    const rows = getDb().prepare(sql).all(teamId) as DeferredRow[];
+    return rows.map(rowToDeferred);
+  },
+  deferredById(id: string): DeferredSettlementRow | null {
+    const r = getDb().prepare("SELECT * FROM deferred_settlements WHERE id = ?").get(id) as DeferredRow | undefined;
+    return r ? rowToDeferred(r) : null;
+  },
+  markDeferredSettled(id: string, status: string, settledAt: string): void {
+    getDb().prepare("UPDATE deferred_settlements SET status = ?, settled_at = ? WHERE id = ?").run(status, settledAt, id);
+  },
+  upsertYearSnapshot(teamId: string, gameId: string, year: number, statements: unknown, createdAt: string): void {
+    getDb()
+      .prepare(
+        `INSERT INTO year_snapshots (id, game_id, team_id, year, statements, created_at) VALUES (?,?,?,?,?,?)
+         ON CONFLICT(team_id, year) DO UPDATE SET statements = excluded.statements, created_at = excluded.created_at`,
+      )
+      .run(uuid(), gameId, teamId, year, JSON.stringify(statements), createdAt);
+  },
+  setTeamCreditLimit(teamId: string, limit: number): void {
+    getDb().prepare("UPDATE teams SET credit_limit = ? WHERE id = ?").run(limit, teamId);
   },
 };

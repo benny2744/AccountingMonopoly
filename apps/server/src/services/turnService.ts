@@ -7,6 +7,7 @@ import { postEntry, postExpectedAsSystem, balanceOf } from "./accountingService.
 import { GameError } from "./gameService.js";
 import { now, uuid } from "../util/ids.js";
 import { drawEventCard } from "./gameService.js";
+import { activateYearEnd } from "./yearEndService.js";
 
 const { calculateInterestCharge } = gameData;
 const {
@@ -56,7 +57,10 @@ function createPending(gameId: string, teamId: string, p: PendingCreate): void {
 }
 
 function markPendingDone(gameId: string): void {
-  getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE game_id = ? AND status != 'done'").run(gameId);
+  const pending = queries.pendingByGame(gameId);
+  if (pending) {
+    getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE id = ?").run(pending.id);
+  }
   setAwaitingEnd(gameId);
 }
 
@@ -83,6 +87,9 @@ export function roll(gameId: string, teamId: string): { dice: [number, number]; 
     throw new GameError("INVALID_STATE", "Already rolled this turn — resolve the action or end your turn");
   }
   if (openPending(gameId)) throw new GameError("PENDING_ACTION", "Resolve the pending action first");
+  if (queries.yearEndPendingByTeam(teamId)) {
+    throw new GameError("YEAR_END_OPEN", "Finish your year-end checklist before rolling again");
+  }
 
   setResolving(gameId);
 
@@ -114,16 +121,15 @@ export function roll(gameId: string, teamId: string): { dice: [number, number]; 
   const spaces = queries.spacesByGame(gameId);
   const space = spaces.find((s) => s.index === newPosition)!;
 
-  // Phase 2: year-end on GO pass or landing on a GO space (indices 0 and 23).
-  if (passedGo || space.type === "go") {
-    getDb().prepare("UPDATE teams SET current_year = current_year + 1 WHERE id = ?").run(teamId);
-    logEvent(gameId, String(game.currentTurnNumber), "year_end_started", {
-      teamId,
-      note: passedGo ? "Passed GO — year incremented (full flow in Phase 4)" : "Landed on GO — year incremented (full flow in Phase 4)",
-    });
-  }
+  // Phase 4: year-end is a multi-step per-team checklist; enqueue it instead
+  // of bumping the year inline. Checklist runs after the landing action.
+  const goToYearEnd = passedGo || space.type === "go";
+  // (The actual year-end pending action is appended below after dispatch.)
 
   dispatchLanding(game, team, space);
+  if (goToYearEnd) {
+    activateYearEnd(game.id, team.id, String(game.currentTurnNumber));
+  }
   return { dice: [d1, d2], newPosition, space: space.name };
 }
 
@@ -165,10 +171,26 @@ function dispatchLanding(game: Game, team: Team, space: { type: string; id: stri
     }
     case "event": {
       const card = drawEventCard(game.id, game.difficulty);
+      if (card.kind === "credit_method_modifier") {
+        createPending(game.id, team.id, {
+          kind: "noop",
+          payload: { card, note: card.title },
+          expectedEntries: [],
+          status: "done",
+        });
+        logEvent(game.id, turnId, "draw_event_card", {
+          teamId: team.id,
+          cardId: card.id,
+          title: card.title,
+          note: "Payment method modifier (no journal entry)",
+        });
+        setAwaitingEnd(game.id);
+        break;
+      }
       const expected = expectedEntriesForEventCard(card, team, queries.teamsByGame(game.id));
       createPending(game.id, team.id, {
         kind: "event_card",
-        payload: { card },
+        payload: { card, cashShort: card.kind === "cash_expense" && balanceOf(team.id, "Cash") < card.amount },
         expectedEntries: expected,
         status: "awaiting_journal",
       });
@@ -184,7 +206,7 @@ function dispatchLanding(game: Game, team: Team, space: { type: string; id: stri
         space.type === "repair" ? "Repair Expense" : space.type === "charity" ? "Charity Expense" : space.type === "road_closure" ? "Road Closure Expense" : "Event Expense";
       createPending(game.id, team.id, {
         kind: "space_fee",
-        payload: { space: space.type, amount: fee, account, title: space.name },
+        payload: { space: space.type, amount: fee, account, title: space.name, cashShort: balanceOf(team.id, "Cash") < fee },
         expectedEntries: [cashEventExpense(team.id, fee, account, space.name)],
         status: "awaiting_journal",
       });
@@ -294,6 +316,18 @@ export function resolveChoice(gameId: string, teamId: string, input: ResolveChoi
         }
         expected = rentPaidCash(teamId, owner.id, payload.rent);
       } else if (input.choice === "player_credit") {
+        // Credit limit enforcement (PRD §12.2): A/P exposure from open
+        // credit_balances where this team is the debtor must not exceed limit.
+        const openAP = queries
+          .creditBalancesByGame(gameId)
+          .filter((cb) => cb.debtorTeamId === teamId && cb.status === "open")
+          .reduce((s, cb) => s + cb.amount, 0);
+        if (openAP + payload.rent > team.creditLimit) {
+          throw new GameError(
+            "CREDIT_LIMIT",
+            `Player credit would exceed limit $${team.creditLimit} (current A/P $${openAP}, rent $${payload.rent}). Pay cash or use the bank credit line.`,
+          );
+        }
         expected = rentPaidCredit(teamId, owner.id, payload.rent);
         // Track player credit balance (Phase 4 wires full flow; row created now).
         getDb()
@@ -345,11 +379,81 @@ export function resolveChoice(gameId: string, teamId: string, input: ResolveChoi
   }
 }
 
+/**
+ * Softlock-prevention flow (PRD §23, §27.3): if a team is stuck on a
+ * `space_fee` or cash-expense `event_card` journal entry they cannot afford,
+ * they can take a bank loan mid-pending. The loan is posted as a system
+ * entry so the upcoming journal entry's debit-to-Cash clears the
+ * negative-cash guard.
+ */
+export function takeLoanForPendingFee(gameId: string, teamId: string, amount: number): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  const pending = queries.pendingByGame(gameId);
+  if (!pending) throw new GameError("NO_PENDING", "No pending action");
+  if (pending.teamId !== teamId) throw new GameError("NOT_YOUR_TURN", "Not your pending action");
+  if (pending.status !== "awaiting_journal") throw new GameError("WRONG_STATE", "Not awaiting a journal entry");
+  if (pending.kind !== "space_fee" && pending.kind !== "event_card") {
+    throw new GameError("BAD_CHOICE", "Loan-then-pay only applies to fee/expense cards");
+  }
+  if (amount <= 0) throw new GameError("BAD_AMOUNT", "Loan amount must be positive");
+  const team = queries.teamsByGame(gameId).find((t) => t.id === teamId)!;
+  const loanBal = balanceOf(teamId, "Loan Payable");
+  if (loanBal + amount > team.creditLimit) {
+    throw new GameError("LOAN_LIMIT", `Loan would exceed credit limit ${team.creditLimit}`);
+  }
+  const turnId = String(game.currentTurnNumber);
+  postExpectedAsSystem(gameId, teamId, turnId, loanTaken(teamId, amount), team.currentYear);
+  logEvent(gameId, turnId, "loan_taken", { teamId, amount, kind: "cover_fee" });
+}
+
 function updatePendingExpected(gameId: string, expected: ExpectedEntry[], status: "awaiting_journal"): void {
   const pending = queries.pendingByGame(gameId)!;
   getDb()
     .prepare("UPDATE pending_actions SET expected_entries = ?, status = ? WHERE id = ?")
     .run(JSON.stringify(expected), status, pending.id);
+}
+
+/** PRD §11.2: accrual cards queue a year-end settlement item after the entry posts. */
+function recordDeferredSettlementForCard(
+  gameId: string,
+  teamId: string,
+  card: gameData.EventCardBase,
+): void {
+  const ts = now();
+  const insert = (kind: "collect_ar" | "pay_ap" | "recognize_prepaid", amount: number, accountName: string, counterAccountName: string | null) => {
+    getDb()
+      .prepare(
+        `INSERT INTO deferred_settlements (id, game_id, team_id, kind, amount, account_name, counter_account_name, source_event_id, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(uuid(), gameId, teamId, kind, amount, accountName, counterAccountName, `card-${card.id}-${ts}`, "open", ts);
+  };
+  switch (card.kind) {
+    case "accrual_revenue_receivable":
+      insert("collect_ar", card.amount, "Accounts Receivable", "Cash");
+      break;
+    case "accrual_expense_payable":
+      insert("pay_ap", card.amount, card.expenseAccount ?? "Event Expense", null);
+      break;
+    case "accrual_prepaid":
+      insert("recognize_prepaid", card.amount, "Prepaid Services", card.yearEndRecognitionAccount ?? "Internet Expense");
+      break;
+    default:
+      break;
+  }
+}
+
+function maybeRecordDeferredForEventCard(
+  gameId: string,
+  teamId: string,
+  pending: { kind: string; payload: unknown },
+  difficulty: Game["difficulty"],
+): void {
+  if (difficulty !== "accrual" || pending.kind !== "event_card") return;
+  const card = (pending.payload as { card?: gameData.EventCardBase }).card;
+  if (!card) return;
+  recordDeferredSettlementForCard(gameId, teamId, card);
 }
 
 export interface SubmitResult {
@@ -374,6 +478,9 @@ export function submitJournalEntry(
 
   const team = queries.teamsByGame(gameId).find((t) => t.id === teamId)!;
   const expectedEntries = pending.expectedEntries as ExpectedEntry[];
+  if (expectedEntries.length === 0) {
+    throw new GameError("NO_EXPECTED", "No journal entry expected for this action");
+  }
   const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
   const result = accounting.validateJournalEntry(input, studentExpected, game.difficulty);
   bumpAttempts(gameId);
@@ -408,6 +515,7 @@ export function submitJournalEntry(
     }
   }
 
+  maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
   markPendingDone(gameId);
   logEvent(gameId, String(game.currentTurnNumber), "event_resolved", {
     teamId,
@@ -434,6 +542,9 @@ export function revealAnswer(gameId: string): void {
   const teamId = pending.teamId;
   const team = queries.teamsByGame(gameId).find((t) => t.id === teamId)!;
   const expectedEntries = pending.expectedEntries as ExpectedEntry[];
+  if (expectedEntries.length === 0) {
+    throw new GameError("NO_EXPECTED", "No journal entry to reveal");
+  }
   const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
   if (studentExpected.lines.length > 0) {
     const debit = studentExpected.lines.find((l) => l.debit > 0)!;
@@ -461,6 +572,7 @@ export function revealAnswer(gameId: string): void {
       postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
     }
   }
+  maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
   markPendingDone(gameId);
   logEvent(gameId, null, "teacher_override", { action: "reveal_answer", teamId, description: studentExpected.description });
 }

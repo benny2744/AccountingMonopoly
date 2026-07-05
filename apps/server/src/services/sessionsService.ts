@@ -153,3 +153,24 @@ export function requireEndTurnSession(auth: string | undefined, gameId: string):
   assertEndTurnSession(s, gameId);
   return s;
 }
+
+/** Year-end start: owning team or teacher only; display and other teams rejected. */
+export function assertSelfTeamOrTeacher(session: Session, gameId: string, teamId: string): void {
+  if (session.gameId !== gameId) throw new GameError("WRONG_GAME", "Session is for a different game");
+  if (session.role === "display") throw new GameError("NOT_YOUR_TEAM", "Display cannot start year-end");
+  if (session.role === "team" && session.teamId !== teamId) {
+    throw new GameError("NOT_YOUR_TEAM", "Cannot start year-end for another team");
+  }
+}
+
+export function requireSelfTeamOrTeacher(auth: string | undefined, gameId: string, teamId: string): Session {
+  const s = sessionFromHeader(auth);
+  if (!s) throw new GameError("NO_SESSION", "Missing or invalid session token");
+  assertSelfTeamOrTeacher(s, gameId, teamId);
+  return s;
+}
+
+/** Year-end step resolve: owning team or teacher. */
+export function requireYearEndResolveSession(auth: string | undefined, gameId: string, teamId: string): Session {
+  return requireSelfTeamOrTeacher(auth, gameId, teamId);
+}

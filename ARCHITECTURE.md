@@ -44,6 +44,9 @@ directly from its TypeScript source (no build step required for dev).
 - Server game logic: [`apps/server/src/services/`](apps/server/src/services)
   - `gameService.ts` — room/team lifecycle, start gating, teacher controls.
   - `turnService.ts` — dice, movement, landing resolution, `endTurn`.
+  - `yearEndService.ts` — per-team year-end checklist (A/R, A/P, prepaids,
+    snapshot, closing entries); concurrent with the turn loop via `year_end`
+    pendings in `yearEndPendings[]`.
   - `accountingService.ts` — bridges game events to the shared entry rules and posts entries.
   - `stateService.ts` — projection of current game state for reads and broadcasts.
   - `sessionsService.ts` — session tokens bound to `{gameId, role, teamId}`.

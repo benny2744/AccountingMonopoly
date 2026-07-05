@@ -19,10 +19,10 @@ Two difficulty modes are supported:
 
 ## Status
 
-Pre-1.0. The shared accounting engine, local hot-seat game, and **multiplayer
-classroom rooms** (sessions, Socket.IO sync, role dashboards, lobby join flow)
-are implemented. Accrual mode polish and classroom UX polish remain in the
-phase plans (see [Plans](#plans-and-specs)).
+Pre-1.0. The shared accounting engine, local hot-seat game, **multiplayer
+classroom rooms**, and **Accrual Basis mode** (player credit, deferred
+settlements, per-team year-end checklist) are implemented. Classroom UX polish
+remains in [PLAN-05-CLASSROOM-POLISH.md](PLAN-05-CLASSROOM-POLISH.md).
 
 ---
 

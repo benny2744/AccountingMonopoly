@@ -2,6 +2,7 @@ import type { Account, BoardSpace, CreditBalance, Game, GameEvent, JournalEntryL
 import { accounting } from "@amono/shared";
 import { queries } from "../db/queries.js";
 import { balancesFor } from "./accountingService.js";
+import { pendingToView } from "./yearEndService.js";
 
 const { calculateAccountBalance } = accounting;
 
@@ -27,6 +28,14 @@ export interface GameState {
     attempts: number;
     teamId: string;
   } | null;
+  yearEndPendings: {
+    kind: string;
+    payload: unknown;
+    expectedEntries: unknown[];
+    status: string;
+    attempts: number;
+    teamId: string;
+  }[];
   events: GameEvent[];
   creditBalances: CreditBalance[];
 }
@@ -51,22 +60,15 @@ export function getGameState(gameId: string): GameState {
   });
 
   const pending = queries.pendingByGame(gameId);
+  const yearEndPendings = queries.yearEndPendingsByGame(gameId);
 
   return {
     game,
     teams: teamViews,
     spaces: queries.spacesByGame(gameId),
     properties: props,
-    pending: pending
-      ? {
-          kind: pending.kind,
-          payload: pending.payload,
-          expectedEntries: pending.expectedEntries as unknown[],
-          status: pending.status,
-          attempts: pending.attempts,
-          teamId: pending.teamId,
-        }
-      : null,
+    pending: pending ? pendingToView(pending) : null,
+    yearEndPendings: yearEndPendings.map(pendingToView),
     events: queries.eventsByGame(gameId, 30),
     creditBalances: cbs,
   };

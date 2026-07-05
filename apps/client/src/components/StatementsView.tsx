@@ -2,22 +2,32 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { TeamView, StatementsView } from "../api.js";
 
+type StmtTab = "statements" | "arap";
+
 export default function StatementsView({
   gameId,
   teamView,
+  difficulty,
   refreshKey,
 }: {
   gameId: string;
   teamView: TeamView;
+  difficulty: "cash" | "accrual";
   refreshKey?: string;
 }) {
   const [data, setData] = useState<StatementsView | null>(null);
+  const [arap, setArap] = useState<{ rows: { type: "receivable" | "payable"; otherTeam: string | null; amount: number; source: string; status: string }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<StmtTab>("statements");
 
   useEffect(() => {
     setData(null);
+    setArap(null);
     api.statements(gameId, teamView.team.id).then(setData).catch((e) => setError((e as Error).message));
-  }, [gameId, teamView.team.id, refreshKey]);
+    if (difficulty === "accrual") {
+      api.arapSchedule(gameId, teamView.team.id).then(setArap).catch((e) => setError((e as Error).message));
+    }
+  }, [gameId, teamView.team.id, difficulty, refreshKey]);
 
   if (error) return <div className="text-red-600 p-4">{error}</div>;
   if (!data) return <div className="p-4">Loading statements…</div>;
@@ -26,6 +36,65 @@ export default function StatementsView({
 
   return (
     <div className="space-y-4">
+      {difficulty === "accrual" && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setTab("statements")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              tab === "statements" ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
+            }`}
+          >
+            Financial Statements
+          </button>
+          <button
+            onClick={() => setTab("arap")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              tab === "arap" ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
+            }`}
+          >
+            A/R &amp; A/P Schedule
+          </button>
+        </div>
+      )}
+
+      {tab === "arap" && difficulty === "accrual" && (
+        <div className="bg-white rounded-2xl shadow p-5">
+          <h2 className="font-bold text-lg mb-3">A/R &amp; A/P Schedule — {teamView.team.name}</h2>
+          {!arap ? (
+            <div className="text-slate-500 text-sm">Loading schedule…</div>
+          ) : arap.rows.length === 0 ? (
+            <div className="text-slate-400 text-sm">No open receivables or payables.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500 border-b">
+                    <th className="py-2 pr-4">Type</th>
+                    <th className="py-2 pr-4">Other Team</th>
+                    <th className="py-2 pr-4">Amount</th>
+                    <th className="py-2 pr-4">Source</th>
+                    <th className="py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {arap.rows.map((row, i) => (
+                    <tr key={i} className="border-b border-slate-100">
+                      <td className="py-2 pr-4 capitalize">{row.type === "receivable" ? "A/R" : "A/P"}</td>
+                      <td className="py-2 pr-4">{row.otherTeam ?? "—"}</td>
+                      <td className="py-2 pr-4 font-mono">${row.amount}</td>
+                      <td className="py-2 pr-4">{row.source}</td>
+                      <td className="py-2">{row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "statements" && (
+        <>
       <div className="bg-white rounded-2xl shadow p-5">
         <h2 className="font-bold text-lg mb-3">Income Statement — {teamView.team.name}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -84,6 +153,8 @@ export default function StatementsView({
           </div>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

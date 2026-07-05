@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { api } from "../api.js";
 import { useGameStore } from "../store.js";
 import { getChartOfAccounts } from "@amono/shared/accounting";
@@ -24,7 +24,17 @@ export default function JournalEntryPanel({
 
   const expected = (pending.expectedEntries || []).find((e: any) => e.teamId === currentTeam.team.id) ?? (pending.expectedEntries || [])[0];
   const expectedAmount: number = expected?.lines?.find((l: any) => l.debit > 0)?.debit ?? 0;
-  void useMemo;
+  const cashShort = expectedAmount > 0 && currentTeam.cash < expectedAmount;
+  const [loanAmount, setLoanAmount] = useState(expectedAmount - currentTeam.cash > 0 ? expectedAmount - currentTeam.cash : 100);
+
+  async function takeLoanForFee() {
+    try {
+      await api.loanForFee(gameId, currentTeam.team.id, loanAmount);
+      // State arrives via socket broadcast; the panel re-renders with new cash.
+    } catch (e) {
+      setFeedback({ ok: false, text: (e as Error).message });
+    }
+  }
 
   async function submit() {
     if (!debit || !credit || amount <= 0) {
@@ -60,6 +70,29 @@ export default function JournalEntryPanel({
       <p className="text-sm text-slate-600 mb-3 bg-slate-50 rounded p-2">
         {expected?.description ?? "Record a journal entry for this transaction."}
       </p>
+      {cashShort && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <div className="text-sm font-semibold text-amber-900 mb-1">
+            Your cash (${currentTeam.cash}) is short for this ${expectedAmount} payment.
+          </div>
+          <div className="text-xs text-amber-800 mb-2">Take a bank loan first, then submit your journal entry.</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm">$</span>
+            <input
+              type="number"
+              value={loanAmount || ""}
+              onChange={(e) => setLoanAmount(Number(e.target.value))}
+              className="border border-slate-300 rounded-lg px-3 py-2 w-32"
+            />
+            <button
+              onClick={takeLoanForFee}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90"
+            >
+              Take Loan
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <AccountSelect label="Debit (Dr)" value={debit} onChange={setDebit} difficulty={difficulty} />
         <AccountSelect label="Credit (Cr)" value={credit} onChange={setCredit} difficulty={difficulty} />

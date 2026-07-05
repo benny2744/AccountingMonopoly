@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useGameStore } from "../store.js";
@@ -101,6 +101,8 @@ export default function TeacherDashboard() {
           <div className="space-y-4">
             <Board state={state} />
             <TeamTable state={state} />
+            {state.game.difficulty === "accrual" && <CreditLimitPanel state={state} />}
+            <YearEndTriggerPanel state={state} />
           </div>
           <Sidebar state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelectTeam={setSelectedTeamId} />
         </div>
@@ -116,6 +118,7 @@ export default function TeacherDashboard() {
         <StatementsView
           gameId={state.game.id}
           teamView={selectedTeam}
+          difficulty={state.game.difficulty}
           refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
         />
       )}
@@ -186,6 +189,90 @@ function TeamPicker({
           {tv.team.name}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Phase 4 §6: teacher override of per-team credit limit (accrual only). */
+function CreditLimitPanel({ state }: { state: import("../api.js").GameState }) {
+  return (
+    <div className="bg-white rounded-2xl shadow p-4">
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Credit Limit Override</h2>
+      <div className="space-y-2">
+        {state.teams.map((tv) => (
+          <CreditLimitRow key={tv.team.id} gameId={state.game.id} teamId={tv.team.id} name={tv.team.name} color={tv.team.color} current={tv.team.creditLimit} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CreditLimitRow({ gameId, teamId, name, color, current }: { gameId: string; teamId: string; name: string; color: string; current: number }) {
+  const [val, setVal] = useState(current);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setVal(current), [current]);
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="inline-block w-3 h-3 rounded-full" style={{ background: color }} />
+      <span className="flex-1">{name}</span>
+      <span className="text-slate-400 text-xs">limit ${current}</span>
+      <input
+        type="number"
+        value={val}
+        onChange={(e) => setVal(Number(e.target.value))}
+        className="border border-slate-300 rounded-lg px-2 py-1 w-24"
+      />
+      <button
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await api.setCreditLimit(gameId, teamId, val);
+          } catch (e) {
+            alert((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={busy || val === current}
+        className="bg-slate-700 text-white px-3 py-1 rounded-lg text-xs disabled:opacity-50"
+      >
+        Set
+      </button>
+    </div>
+  );
+}
+
+/** Phase 4 §6: teacher can manually trigger year-end for any team. */
+function YearEndTriggerPanel({ state }: { state: import("../api.js").GameState }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="bg-white rounded-2xl shadow p-4">
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Trigger Year-End</h2>
+      <div className="flex flex-wrap gap-2">
+        {state.teams.map((tv) => (
+          <button
+            key={tv.team.id}
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.startYearEnd(state.game.id, tv.team.id);
+              } catch (e) {
+                alert((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            <span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle" style={{ background: tv.team.color }} />
+            {tv.team.name}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500 mt-2">
+        Forces the year-end checklist for a team. Useful if a team is stuck or the teacher wants to align all teams.
+      </p>
     </div>
   );
 }
