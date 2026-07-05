@@ -146,6 +146,8 @@ trail clean.
   PRD §32 scenarios. These run on every `pnpm test`.
 - **Server** has integration tests:
   - `game.integration.test.ts` — REST create → roll → resolve → journal → statements.
+  - `accrual.integration.test.ts` — accrual rent, credit limits, deferred cards, year-end.
+  - `phase5.integration.test.ts` — hints, scoring, export, end-game, clone, balance feedback.
   - `socket.integration.test.ts` — out-of-turn rolls, broadcast fan-out, reconnect
     with token, pause blocking all mutators, `endTurn` authorization, teacher/team
     role guards.

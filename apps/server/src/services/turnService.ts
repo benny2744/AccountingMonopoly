@@ -456,11 +456,18 @@ function maybeRecordDeferredForEventCard(
   recordDeferredSettlementForCard(gameId, teamId, card);
 }
 
+export interface BalanceChange {
+  accountName: string;
+  before: number;
+  after: number;
+}
+
 export interface SubmitResult {
   correct: boolean;
   feedback: string;
   errors: string[];
   attempts: number;
+  balanceChanges?: BalanceChange[];
 }
 
 export function submitJournalEntry(
@@ -488,6 +495,9 @@ export function submitJournalEntry(
   if (!result.correct) {
     return { correct: false, feedback: result.feedback, errors: result.errors, attempts: pending.attempts + 1 };
   }
+
+  const beforeDebit = balanceOf(teamId, input.debitAccount);
+  const beforeCredit = balanceOf(teamId, input.creditAccount);
 
   // Post the student's entry (single debit + single credit per PRD §17.1 form).
   postEntry({
@@ -522,7 +532,16 @@ export function submitJournalEntry(
     description: studentExpected.description,
     note: "Journal entry posted",
   });
-  return { correct: true, feedback: result.feedback, errors: [], attempts: pending.attempts + 1 };
+  return {
+    correct: true,
+    feedback: result.feedback,
+    errors: [],
+    attempts: pending.attempts + 1,
+    balanceChanges: [
+      { accountName: input.debitAccount, before: beforeDebit, after: balanceOf(teamId, input.debitAccount) },
+      { accountName: input.creditAccount, before: beforeCredit, after: balanceOf(teamId, input.creditAccount) },
+    ],
+  };
 }
 
 /**
@@ -546,9 +565,9 @@ export function revealAnswer(gameId: string): void {
     throw new GameError("NO_EXPECTED", "No journal entry to reveal");
   }
   const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
-  if (studentExpected.lines.length > 0) {
-    const debit = studentExpected.lines.find((l) => l.debit > 0)!;
-    const credit = studentExpected.lines.find((l) => l.credit > 0)!;
+  const debitLine = studentExpected.lines.find((l) => l.debit > 0);
+  const creditLine = studentExpected.lines.find((l) => l.credit > 0);
+  if (debitLine && creditLine) {
     postEntry({
       gameId,
       teamId,
@@ -560,8 +579,8 @@ export function revealAnswer(gameId: string): void {
       isCorrect: true,
       attemptOutcome: "revealed",
       lines: [
-        { accountName: debit.accountName, debit: debit.debit, credit: 0 },
-        { accountName: credit.accountName, debit: 0, credit: credit.credit },
+        { accountName: debitLine.accountName, debit: debitLine.debit, credit: 0 },
+        { accountName: creditLine.accountName, debit: 0, credit: creditLine.credit },
       ],
     });
   }
@@ -574,7 +593,14 @@ export function revealAnswer(gameId: string): void {
   }
   maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
   markPendingDone(gameId);
-  logEvent(gameId, null, "teacher_override", { action: "reveal_answer", teamId, description: studentExpected.description });
+  logEvent(gameId, null, "teacher_override", {
+    action: "reveal_answer",
+    teamId,
+    description: studentExpected.description,
+    debitAccount: debitLine?.accountName,
+    creditAccount: creditLine?.accountName,
+    amount: debitLine?.debit,
+  });
 }
 
 export function endTurn(gameId: string): Game {

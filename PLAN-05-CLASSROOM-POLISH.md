@@ -1,5 +1,9 @@
 # Phase 5 — Classroom Polish
 
+**Status: shipped** (including review fixes). Hints, scoring, export, projector
+polish, student clarity pass, teacher recovery, README §31 checklist, and
+13 integration tests. See [CHANGELOG.md](CHANGELOG.md) for the full list.
+
 Goal (PRD §26.5): a teacher can run a 40–80 minute session unaided; students understand what to do without developer help; the teacher can recover from any mistake. This phase is UX, feedback, scoring, and export — no new accounting.
 
 Depends on: Phase 4 complete (shipped, including review fixes — see PLAN-04 "Accepted deviations"). Two Phase 4 outcomes matter throughout this phase:

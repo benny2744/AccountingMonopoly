@@ -7,6 +7,8 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   startingLoanLimit: 500,
   boardPreset: "simple",
   journalEntryMode: "autoPostCounterparty",
+  allowStudentFullHint: false,
+  showScores: true,
 };
 
 // PRD §13.3 — interest per dice roll.

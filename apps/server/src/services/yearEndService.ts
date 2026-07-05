@@ -247,12 +247,54 @@ function snapshotStatements(gameId: string, teamId: string, year: number): void 
   const entries = queries.entriesByTeam(teamId);
   const lines = queries.linesForTeam(teamId);
   const beginning = beginningCashForYear(teamId, year);
+  const income = accounting.generateIncomeStatement(accounts, lines);
+  const balanceSheet = accounting.generateBalanceSheet(accounts, lines);
+  const cashSummary = accounting.generateCashSummary(accounts, lines, entries, beginning);
+  // PRD §25 scoring: netIncome + cash*0.1 − loan*0.1 + cleanBooksBonus.
+  const cash = (balanceSheet.assets.find((a) => a.accountName === "Cash")?.amount) ?? 0;
+  const loan = (balanceSheet.liabilities.find((a) => a.accountName === "Loan Payable")?.amount) ?? 0;
+  const cleanBooksBonus = computeCleanBooksBonus(gameId, teamId, year);
+  const score = Math.round(income.netIncome + cash * 0.1 - loan * 0.1 + cleanBooksBonus);
+  const prevSnaps = queries.yearSnapshotsForTeam(teamId);
+  const prevCum = prevSnaps.length > 0 ? (prevSnaps[prevSnaps.length - 1]!.cumulativeScore ?? 0) : 0;
+  const cumulativeScore = prevCum + score;
   const statements = {
-    income: accounting.generateIncomeStatement(accounts, lines),
-    balanceSheet: accounting.generateBalanceSheet(accounts, lines),
-    cashSummary: accounting.generateCashSummary(accounts, lines, entries, beginning),
+    income,
+    balanceSheet,
+    cashSummary,
+    score,
+    scoreBreakdown: { netIncome: income.netIncome, cash, loan, cleanBooksBonus },
   };
-  queries.upsertYearSnapshot(teamId, gameId, year, statements, now());
+  queries.upsertYearSnapshotWithScore(gameId, teamId, year, statements, score, cumulativeScore, now());
+}
+
+/**
+ * cleanBooksBonus (PRD §25): +100 if every student-facing entry of the year
+ * was correct on the first try, +50 if all correct within one retry, 0 if
+ * any teacher reveal was needed. Excludes `attempt_outcome = "system"` entries
+ * (interest, year-end, closing, counterparty auto-posts).
+ */
+function computeCleanBooksBonus(gameId: string, teamId: string, year: number): number {
+  const row = getDb()
+    .prepare(
+      `SELECT attempt_outcome, COUNT(*) AS n
+       FROM journal_entries
+       WHERE game_id = ? AND team_id = ? AND year = ? AND attempt_outcome IS NOT NULL
+       GROUP BY attempt_outcome`,
+    )
+    .all(gameId, teamId, year) as { attempt_outcome: string; n: number }[];
+  let revealed = 0;
+  let retry = 0;
+  let firstTry = 0;
+  for (const r of row) {
+    if (r.attempt_outcome === "revealed") revealed += r.n;
+    else if (r.attempt_outcome === "retry") retry += r.n;
+    else if (r.attempt_outcome === "first_try") firstTry += r.n;
+    // 'system' entries are excluded entirely.
+  }
+  if (revealed > 0) return 0;
+  if (retry > 0) return firstTry + retry > 0 ? 50 : 0;
+  return firstTry > 0 ? 100 : 0;
 }
 
 function postClosingEntries(gameId: string, teamId: string, year: number): void {
@@ -288,9 +330,12 @@ function postClosingEntries(gameId: string, teamId: string, year: number): void 
 function finishYearEnd(gameId: string, teamId: string, turnId: string, year: number): void {
   const pending = queries.yearEndPendingByTeam(teamId);
   if (!pending) return;
+  const snap = queries.yearSnapshotsForTeam(teamId).find((s) => s.year === year);
+  const statements = snap?.statements as { income?: { netIncome: number }; scoreBreakdown?: { netIncome: number } } | undefined;
+  const netIncome = statements?.scoreBreakdown?.netIncome ?? statements?.income?.netIncome;
   getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE id = ?").run(pending.id);
   getDb().prepare("UPDATE teams SET current_year = current_year + 1 WHERE id = ?").run(teamId);
-  logEvent(gameId, turnId, "year_end_completed", { teamId, year });
+  logEvent(gameId, turnId, "year_end_completed", { teamId, year, netIncome });
 }
 
 /** Read-only view of the deferred settlements for a team (UI + tests). */
@@ -300,11 +345,14 @@ export function deferredForTeam(teamId: string): DeferredSettlementRow[] {
 
 export function pendingToView(p: PendingActionRow) {
   return {
+    id: p.id,
     kind: p.kind,
     payload: p.payload,
     expectedEntries: p.expectedEntries as unknown[],
     status: p.status,
     attempts: p.attempts,
     teamId: p.teamId,
+    createdAt: p.createdAt,
+    hintsUsed: p.hintsUsed,
   };
 }

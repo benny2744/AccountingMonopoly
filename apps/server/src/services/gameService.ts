@@ -18,6 +18,8 @@ export interface CreateGameInput {
   propertyAllocationRatio: 0 | 0.25 | 0.5 | 0.75;
   startingCash: number;
   startingLoanLimit: number;
+  allowStudentFullHint?: boolean;
+  showScores?: boolean;
 }
 
 export function createGame(input: CreateGameInput): Game {
@@ -29,6 +31,8 @@ export function createGame(input: CreateGameInput): Game {
     propertyAllocationRatio: input.propertyAllocationRatio,
     startingCash: input.startingCash,
     startingLoanLimit: input.startingLoanLimit,
+    ...(input.allowStudentFullHint !== undefined ? { allowStudentFullHint: input.allowStudentFullHint } : {}),
+    ...(input.showScores !== undefined ? { showScores: input.showScores } : {}),
   };
   const ts = now();
   db.prepare(
@@ -219,6 +223,16 @@ export class GameError extends Error {
     super(message);
     this.name = "GameError";
   }
+}
+
+/** Phase 5: end the game — sets status to "ended" and logs a teacher override. */
+export function endGame(gameId: string): Game {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status === "ended") throw new GameError("INVALID_STATE", "Game already ended");
+  getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("ended", now(), gameId);
+  logEvent(gameId, null, "teacher_override", { action: "end_game" });
+  return queries.gameById(gameId)!;
 }
 
 export function pauseGame(gameId: string): Game {

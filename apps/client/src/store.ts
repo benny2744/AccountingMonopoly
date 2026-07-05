@@ -14,6 +14,7 @@ interface GameStore {
   state: GameState | null;
   error: string | null;
   socketError: SocketError | null;
+  connected: boolean;
   loading: boolean;
   socket: Socket | null;
 
@@ -35,6 +36,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   state: null,
   error: null,
   socketError: null,
+  connected: false,
   loading: false,
   socket: null,
 
@@ -70,6 +72,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().socket?.disconnect();
     if (!token) return;
     const socket = io({ path: "/socket.io", auth: { token } });
+    socket.on("connect", () => set({ connected: true, socketError: null }));
+    socket.on("disconnect", () => set({ connected: false }));
+    socket.on("connect_error", () => set({ connected: false }));
     socket.on("game:state_updated", (s: GameState) => set({ state: s, error: null }));
     socket.on("game:error", (e: SocketError) => {
       set({ socketError: e });

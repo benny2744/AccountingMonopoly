@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { api } from "../api.js";
+import { api, saveSession } from "../api.js";
 import { useGameStore } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import Board from "../components/Board.js";
 import Sidebar from "../components/Sidebar.js";
+import Leaderboard from "../components/Leaderboard.js";
 import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
 import type { TeamView } from "../api.js";
@@ -66,13 +67,56 @@ export default function TeacherDashboard() {
             ⏭ Force Next Turn
           </button>
           <button
-            onClick={() => ctl(() => api.revealAnswer(state.game.id))}
+            onClick={() => {
+              if (!confirm("Reveal the correct journal entry for the active team? This counts against their clean-books bonus.")) return;
+              ctl(() => api.revealAnswer(state.game.id));
+            }}
             disabled={busy || !state.pending || state.pending.status !== "awaiting_journal"}
             className="bg-rose-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
             title="Post the correct entry for the active team"
           >
             💡 Reveal Answer
           </button>
+          <a
+            href={api.exportUrl(state.game.id, "csv")}
+            className="bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 inline-flex items-center"
+            title="Download a CSV workbook (journal entries, balances, scores)"
+          >
+            ⬇ Export CSV
+          </a>
+          <a
+            href={api.exportUrl(state.game.id, "json")}
+            className="bg-emerald-100 text-emerald-900 px-4 py-2 rounded-lg font-medium hover:bg-emerald-200 inline-flex items-center"
+            title="Download the full event-sourced JSON record"
+          >
+            ⬇ Export JSON
+          </a>
+          {state.game.status !== "ended" ? (
+            <button
+              onClick={() => {
+                if (confirm("End the game? Students will be locked out of further actions.")) ctl(() => api.endGame(state.game.id));
+              }}
+              disabled={busy}
+              className="bg-red-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              ⏹ End Game
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                const pin = prompt("Re-enter teacher PIN to clone settings into a new room:", "1234");
+                if (pin) ctl(async () => {
+                  const { game, sessionToken } = await api.cloneGame(state.game.id, pin);
+                  saveSession(sessionToken);
+                  window.location.href = `/lobby/${game.roomCode}`;
+                });
+              }}
+              disabled={busy}
+              className="bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              ↻ Play Again (same settings)
+            </button>
+          )}
         </div>
       </header>
 
@@ -101,8 +145,9 @@ export default function TeacherDashboard() {
           <div className="space-y-4">
             <Board state={state} />
             <TeamTable state={state} />
-            {state.game.difficulty === "accrual" && <CreditLimitPanel state={state} />}
-            <YearEndTriggerPanel state={state} />
+            {(state.game.settings.showScores ?? true) && <Leaderboard state={state} showScores={state.game.settings.showScores ?? true} />}
+            {state.game.difficulty === "accrual" && <CreditLimitPanel state={state} onError={setSocketError} />}
+            <YearEndTriggerPanel state={state} onError={setSocketError} />
           </div>
           <Sidebar state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelectTeam={setSelectedTeamId} />
         </div>
@@ -141,11 +186,13 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
             <th className="py-2 text-right">Loan</th>
             <th className="py-2 text-right">Props</th>
             <th className="py-2 text-right">Position</th>
+            <th className="py-2 text-right">Stuck</th>
           </tr>
         </thead>
         <tbody>
           {state.teams.map((tv) => {
             const isCurrent = state.game.currentTeamId === tv.team.id;
+            const stuck = stuckInfo(state, tv.team.id);
             return (
               <tr key={tv.team.id} className={`border-b ${isCurrent ? "bg-amber-50" : ""}`}>
                 <td className="py-2 flex items-center gap-2">
@@ -157,6 +204,15 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
                 <td className="py-2 text-right">${tv.loanPayable}</td>
                 <td className="py-2 text-right">{tv.propertyCount}</td>
                 <td className="py-2 text-right">{tv.team.position}</td>
+                <td className="py-2 text-right">
+                  {stuck ? (
+                    <span className={`text-xs px-2 py-0.5 rounded ${stuck.severity === "high" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`} title={stuck.label}>
+                      {stuck.minutes}m
+                    </span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </td>
               </tr>
             );
           })}
@@ -164,6 +220,23 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
       </table>
     </div>
   );
+}
+
+/** Stuck-team detection (PRD §28.2): how long has the current pending action been open? */
+function stuckInfo(
+  state: import("../api.js").GameState,
+  teamId: string,
+): { minutes: number; severity: "low" | "high"; label: string } | null {
+  const p = state.pending;
+  if (!p || p.teamId !== teamId || !p.createdAt) return null;
+  const ms = Date.now() - new Date(p.createdAt).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return null;
+  return {
+    minutes,
+    severity: minutes >= 3 ? "high" : "low",
+    label: `${p.kind} open for ${minutes} min`,
+  };
 }
 
 function TeamPicker({
@@ -194,20 +267,48 @@ function TeamPicker({
 }
 
 /** Phase 4 §6: teacher override of per-team credit limit (accrual only). */
-function CreditLimitPanel({ state }: { state: import("../api.js").GameState }) {
+function CreditLimitPanel({
+  state,
+  onError,
+}: {
+  state: import("../api.js").GameState;
+  onError: (e: { code: string; message: string }) => void;
+}) {
   return (
     <div className="bg-white rounded-2xl shadow p-4">
       <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Credit Limit Override</h2>
       <div className="space-y-2">
         {state.teams.map((tv) => (
-          <CreditLimitRow key={tv.team.id} gameId={state.game.id} teamId={tv.team.id} name={tv.team.name} color={tv.team.color} current={tv.team.creditLimit} />
+          <CreditLimitRow
+            key={tv.team.id}
+            gameId={state.game.id}
+            teamId={tv.team.id}
+            name={tv.team.name}
+            color={tv.team.color}
+            current={tv.team.creditLimit}
+            onError={onError}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function CreditLimitRow({ gameId, teamId, name, color, current }: { gameId: string; teamId: string; name: string; color: string; current: number }) {
+function CreditLimitRow({
+  gameId,
+  teamId,
+  name,
+  color,
+  current,
+  onError,
+}: {
+  gameId: string;
+  teamId: string;
+  name: string;
+  color: string;
+  current: number;
+  onError: (e: { code: string; message: string }) => void;
+}) {
   const [val, setVal] = useState(current);
   const [busy, setBusy] = useState(false);
   useEffect(() => setVal(current), [current]);
@@ -228,7 +329,7 @@ function CreditLimitRow({ gameId, teamId, name, color, current }: { gameId: stri
           try {
             await api.setCreditLimit(gameId, teamId, val);
           } catch (e) {
-            alert((e as Error).message);
+            onError({ code: "ERROR", message: (e as Error).message });
           } finally {
             setBusy(false);
           }
@@ -243,7 +344,13 @@ function CreditLimitRow({ gameId, teamId, name, color, current }: { gameId: stri
 }
 
 /** Phase 4 §6: teacher can manually trigger year-end for any team. */
-function YearEndTriggerPanel({ state }: { state: import("../api.js").GameState }) {
+function YearEndTriggerPanel({
+  state,
+  onError,
+}: {
+  state: import("../api.js").GameState;
+  onError: (e: { code: string; message: string }) => void;
+}) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="bg-white rounded-2xl shadow p-4">
@@ -258,7 +365,7 @@ function YearEndTriggerPanel({ state }: { state: import("../api.js").GameState }
               try {
                 await api.startYearEnd(state.game.id, tv.team.id);
               } catch (e) {
-                alert((e as Error).message);
+                onError({ code: "ERROR", message: (e as Error).message });
               } finally {
                 setBusy(false);
               }

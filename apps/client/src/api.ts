@@ -7,6 +7,8 @@ export interface GameSettings {
   startingLoanLimit: number;
   boardPreset: "simple";
   journalEntryMode: "activeTeamOnly" | "bothTeams" | "autoPostCounterparty";
+  allowStudentFullHint?: boolean;
+  showScores?: boolean;
 }
 
 export interface Game {
@@ -59,12 +61,15 @@ export interface Property {
 }
 
 export interface PendingAction {
+  id: string;
   kind: string;
   payload: any;
   expectedEntries: any[];
   status: string;
   attempts: number;
   teamId: string;
+  createdAt?: string;
+  hintsUsed?: number;
 }
 
 export interface GameEvent {
@@ -227,7 +232,16 @@ export const api = {
     }),
 
   submitJournal: (gameId: string, teamId: string, debitAccount: string, creditAccount: string, amount: number) =>
-    req<{ result: { correct: boolean; feedback: string; errors: string[]; attempts: number }; state: GameState }>(
+    req<{
+      result: {
+        correct: boolean;
+        feedback: string;
+        errors: string[];
+        attempts: number;
+        balanceChanges?: { accountName: string; before: number; after: number }[];
+      };
+      state: GameState;
+    }>(
       `/games/${gameId}/submit-journal-entry`,
       { method: "POST", body: JSON.stringify({ teamId, debitAccount, creditAccount, amount }) },
     ),
@@ -265,6 +279,30 @@ export const api = {
     req<{ rows: { type: "receivable" | "payable"; otherTeam: string | null; amount: number; source: string; status: string }[] }>(
       `/games/${gameId}/teams/${teamId}/arap`,
     ),
+
+  // Phase 5
+  hint: (gameId: string, level: number) =>
+    req<{ level: number; text: string; hintsUsed: number; gated: boolean }>(`/games/${gameId}/hint`, {
+      method: "POST",
+      body: JSON.stringify({ level }),
+    }),
+  endGame: (gameId: string) => req<GameState>(`/games/${gameId}/end`, { method: "POST", body: "{}" }),
+  cloneGame: (gameId: string, teacherPin: string) =>
+    req<{ game: Game; sessionToken: string }>(`/games/${gameId}/clone`, {
+      method: "POST",
+      body: JSON.stringify({ teacherPin }),
+    }),
+  scores: (gameId: string) =>
+    req<{
+      scores: {
+        teamId: string;
+        name: string;
+        color: string;
+        score: number;
+        yearSnapshots: { year: number; score: number; cumulative: number }[];
+      }[];
+    }>(`/games/${gameId}/scores`),
+  exportUrl: (gameId: string, format: "json" | "csv") => `/api/games/${gameId}/export?format=${format}`,
 
   ledger: (gameId: string, teamId: string) =>
     req<{ accounts: any[]; tAccounts: TAccountRow[]; balances: any[] }>(`/games/${gameId}/teams/${teamId}/ledger`),

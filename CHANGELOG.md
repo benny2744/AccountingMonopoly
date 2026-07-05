@@ -7,6 +7,53 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Phase 5 — Classroom polish** (PRD §26.5): hints, scoring, export,
+  projector polish, student-clarity pass, and the teacher runbook.
+  - **Hints** (PRD §17.4): Hint button in `JournalEntryPanel` steps through
+    the 4 levels from the shared engine (`getHint`). Level 4 (full answer)
+    is gated by the new `allowStudentFullHint` setting (default false —
+    full answers go through teacher Reveal). `hints_used` is recorded per
+    pending action and feeds scoring.
+  - **Scoring** (PRD §25): per-year snapshot now stores
+    `score = netIncome + cash*0.1 − loan*0.1 + cleanBooksBonus` plus
+    `cumulative_score`. Bonus = +100 if all student entries were first-try,
+    +50 if all within one retry, 0 if any revealed. System entries
+    (interest, year-end, closing, counterparty auto-posts) are excluded.
+    New `GET /:id/scores` endpoint; leaderboard on DisplayPage /
+    TeacherDashboard switches to score-based ranking when `showScores` is
+    on (new setting, default true).
+  - **Export** (PRD §19.1): `GET /:id/export?format=json|csv`. JSON is the
+    full event-sourced record; CSV is a multi-section workbook
+    (`journal_entries`, `balances`, `scores`) for Excel grading, with
+    `is_student_submitted` / `attempt_outcome` columns so system entries
+    are distinguishable.
+  - **Teacher recovery** (PRD §24): End Game button (`POST /:id/end`),
+    "Play again with same settings" clone (`POST /:id/clone`), stuck-team
+    badge with elapsed minutes on the team table, Export CSV/JSON buttons.
+  - **Projector polish**: plain-language event ticker, year-end celebration
+    banner (with net income) driven by `year_end_completed`, timed answer-reveal
+    card on reveal, event-card description shown on the projector, shared
+    `Leaderboard` component on DisplayPage and TeacherDashboard.
+  - **Student clarity** (PRD §28.1): persistent status strip on TeamDashboard
+    keyed off the team's year-end checklist (not the turn pending), normal-balance
+    captions on account dropdowns, mini before/after T-account feedback on
+    correct journal submissions, hint state resets per pending action,
+    disconnected-connection banner.
+  - **Security / correctness fixes**: `teacherPinHash` stripped from state
+    broadcasts and JSON export; hint counter increments only the active pending;
+    `pendingToView` exposes `id`, `createdAt`, and `hintsUsed` for stuck badges;
+    year-end banner timer no longer re-arms on every broadcast; teacher dashboard
+    errors use toast instead of `alert()`.
+  - **New settings**: `allowStudentFullHint`, `showScores` on `GameSettings`.
+  - **New schema columns**: `pending_actions.hints_used`,
+    `year_snapshots.score`, `year_snapshots.cumulative_score`.
+  - **Convenience scripts**: `pnpm dev` runs server + client together via
+    `concurrently`; `pnpm start` builds the client then runs the server.
+  - README expanded with reset instructions, implemented features, known
+    limitations, and the PRD §31 MVP acceptance checklist.
+  - 13 Phase 5 integration tests covering end-game (blocks rolls), scoring,
+    export (no pin hash), hint gating/per-pending counter, clone settings,
+    submit `balanceChanges`, pending view fields, and state broadcast hygiene.
 - **Phase 4 — Accrual Basis mode** (full feature set per PRD §26.4):
   - **Fee/event softlock fix** (PRD §23, §27.3): teams stuck on an
     unaffordable fee/expense card can take a bank loan mid-pending via

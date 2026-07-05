@@ -17,6 +17,10 @@ export interface GameSettings {
   startingLoanLimit: number;
   boardPreset: "simple";
   journalEntryMode: JournalEntryMode;
+  /** Phase 5: allow students to view the full-answer hint (level 4) themselves. Default false. */
+  allowStudentFullHint?: boolean;
+  /** Phase 5: show the score-based leaderboard on all dashboards. Default true. */
+  showScores?: boolean;
 }
 
 export interface Game {

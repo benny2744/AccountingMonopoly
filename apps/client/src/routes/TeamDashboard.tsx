@@ -70,9 +70,25 @@ export default function TeamDashboard() {
         </div>
       )}
 
-      {!isMyTurn && currentTeam && state.game.status === "active" && (
-        <div className="mb-4 bg-slate-100 rounded-lg p-3 text-slate-700 font-medium">
-          Waiting for {currentTeam.team.name}…
+      {state.game.status === "ended" && (
+        <div className="mb-4 bg-slate-200 border border-slate-300 text-slate-800 rounded-lg p-3 font-medium">
+          🏁 Game ended. Final scores are on the projector / teacher dashboard.
+        </div>
+      )}
+
+      {state.game.status === "active" && (
+        <div className="mb-4 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg p-3 font-medium">
+          {isMyTurn
+            ? myYearEnd
+              ? "Finish your year-end checklist before rolling again."
+              : state.game.turnPhase === "awaiting_roll"
+                ? "Your turn — roll!"
+                : state.pending?.status === "awaiting_journal"
+                  ? "Record your journal entry."
+                  : "Resolve the pending action."
+            : currentTeam
+              ? `Waiting for ${currentTeam.team.name}…`
+              : ""}
         </div>
       )}
 
@@ -94,7 +110,13 @@ export default function TeamDashboard() {
                 <YearEndPanel pending={myYearEnd} state={state} teamId={myTeam.team.id} />
               )}
               {isMyTurn && currentTeam && state.pending && state.pending.status === "awaiting_journal" && (
-                <JournalEntryPanel gameId={state.game.id} pending={state.pending} currentTeam={currentTeam} difficulty={state.game.difficulty} />
+                <JournalEntryPanel
+                  key={state.pending.id}
+                  gameId={state.game.id}
+                  pending={state.pending}
+                  currentTeam={currentTeam}
+                  difficulty={state.game.difficulty}
+                />
               )}
               {isMyTurn && <ActionModal state={state} currentTeam={currentTeam} />}
               {!isMyTurn && state.pending && state.pending.status === "awaiting_journal" && (

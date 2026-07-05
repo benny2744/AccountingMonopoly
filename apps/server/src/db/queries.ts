@@ -106,6 +106,7 @@ interface PendingRow {
   expected_entries: string;
   status: string;
   attempts: number;
+  hints_used: number;
   created_at: string;
 }
 interface CBRow {
@@ -132,6 +133,17 @@ interface DeferredRow {
   status: string;
   created_at: string;
   settled_at: string | null;
+}
+
+interface SnapRow {
+  id: string;
+  game_id: string;
+  team_id: string;
+  year: number;
+  statements: string;
+  score: number | null;
+  cumulative_score: number | null;
+  created_at: string;
 }
 
 const parse = JSON.parse;
@@ -248,6 +260,7 @@ export interface PendingActionRow {
   expectedEntries: unknown;
   status: string;
   attempts: number;
+  hintsUsed: number;
   createdAt: string;
 }
 
@@ -261,6 +274,7 @@ export function rowToPending(r: PendingRow): PendingActionRow {
     expectedEntries: parse(r.expected_entries),
     status: r.status,
     attempts: r.attempts,
+    hintsUsed: r.hints_used ?? 0,
     createdAt: r.created_at,
   };
 }
@@ -309,6 +323,30 @@ export function rowToDeferred(r: DeferredRow): DeferredSettlementRow {
     status: r.status,
     createdAt: r.created_at,
     settledAt: r.settled_at,
+  };
+}
+
+export interface YearSnapshotRow {
+  id: string;
+  gameId: string;
+  teamId: string;
+  year: number;
+  statements: unknown;
+  score: number | null;
+  cumulativeScore: number;
+  createdAt: string;
+}
+
+export function rowToSnapshot(r: SnapRow): YearSnapshotRow {
+  return {
+    id: r.id,
+    gameId: r.game_id,
+    teamId: r.team_id,
+    year: r.year,
+    statements: JSON.parse(r.statements),
+    score: r.score,
+    cumulativeScore: r.cumulative_score ?? 0,
+    createdAt: r.created_at,
   };
 }
 
@@ -422,5 +460,43 @@ export const queries = {
   },
   setTeamCreditLimit(teamId: string, limit: number): void {
     getDb().prepare("UPDATE teams SET credit_limit = ? WHERE id = ?").run(limit, teamId);
+  },
+  incPendingHints(pendingId: string): number {
+    getDb().prepare("UPDATE pending_actions SET hints_used = hints_used + 1 WHERE id = ?").run(pendingId);
+    const row = getDb().prepare("SELECT hints_used AS h FROM pending_actions WHERE id = ?").get(pendingId) as
+      | { h: number }
+      | undefined;
+    return row?.h ?? 0;
+  },
+  upsertYearSnapshotWithScore(
+    gameId: string,
+    teamId: string,
+    year: number,
+    statements: unknown,
+    score: number,
+    cumulativeScore: number,
+    createdAt: string,
+  ): void {
+    getDb()
+      .prepare(
+        `INSERT INTO year_snapshots (id, game_id, team_id, year, statements, score, cumulative_score, created_at)
+         VALUES (?,?,?,?,?,?,?,?)
+         ON CONFLICT(team_id, year) DO UPDATE SET
+           statements = excluded.statements,
+           score = excluded.score,
+           cumulative_score = excluded.cumulative_score,
+           created_at = excluded.created_at`,
+      )
+      .run(uuid(), gameId, teamId, year, JSON.stringify(statements), score, cumulativeScore, createdAt);
+  },
+  yearSnapshotsForTeam(teamId: string): YearSnapshotRow[] {
+    const rows = getDb().prepare("SELECT * FROM year_snapshots WHERE team_id = ? ORDER BY year").all(teamId) as SnapRow[];
+    return rows.map(rowToSnapshot);
+  },
+  yearSnapshotsForGame(gameId: string): YearSnapshotRow[] {
+    const rows = getDb()
+      .prepare("SELECT s.* FROM year_snapshots s JOIN teams t ON t.id = s.team_id WHERE t.game_id = ? ORDER BY s.team_id, s.year")
+      .all(gameId) as SnapRow[];
+    return rows.map(rowToSnapshot);
   },
 };

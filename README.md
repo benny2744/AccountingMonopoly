@@ -45,9 +45,13 @@ Prerequisites: **Node 22+** and **pnpm 9+**.
 ```bash
 pnpm install
 
-# Run client and server together in dev (in separate terminals):
-pnpm --filter @amono/client dev    # http://localhost:5173 (proxies /api + /socket.io to :5000)
-pnpm --filter @amono/server dev    # http://localhost:5000
+# Run client and server together (logs interleaved in one terminal):
+pnpm dev
+# → http://localhost:5173 (proxies /api + /socket.io to :5000)
+
+# Or run them separately:
+pnpm dev:server    # http://localhost:5000
+pnpm dev:client    # http://localhost:5173
 
 # Type-check everything:
 pnpm build
@@ -57,8 +61,67 @@ pnpm test
 ```
 
 For classroom/LAN deployment, build the client and run only the server —
-students join via `http://<teacher-LAN-IP>:5000/join/<roomCode>`. See
+students join via `http://<teacher-LAN-IP>:5000`. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Resetting local state
+
+All session data lives in a SQLite file under `data/` (default
+`data/game.db`; override with `DB_PATH=…`). Stop the server and delete (or
+move) the `data/` directory to start a fresh session — the server recreates
+the schema on next start.
+
+## Implemented features (MVP scope)
+
+- **Cash & accrual difficulty modes** with the full PRD §10 chart of accounts.
+- **Server-authoritative, event-sourced** gameplay: every state change is
+  persisted as a `GameEvent` row before state mutates.
+- **Multiplayer over LAN** via Socket.IO: teacher, per-team student clients,
+  and a projector display, all synchronised by full-state broadcasts.
+- **Per-team year-end checklist** (accrual): collect A/R, settle A/P
+  (pay-cash or roll-to-loan), recognise prepaids, snapshot statements, close
+  the books to Retained Earnings.
+- **Learning aids**: 4-level hints (level 4 teacher-gated), teacher reveal,
+  normal-balance captions on account dropdowns, softlock loan-then-pay
+  affordance, stuck-team badges.
+- **Scoring** per PRD §25: `netIncome + cash*0.1 − loan*0.1 + cleanBooksBonus`
+  per year, with cumulative leaderboard (toggle via `showScores` setting).
+- **Export**: JSON (full event-sourced record) and CSV (Excel-graded
+  workbook with journal entries, balances, and scores) from the teacher
+  dashboard.
+
+## Known limitations (out of scope for MVP, PRD §4.4)
+
+Auctions, houses/hotels, property trading, depreciation, bad debt, inventory,
+taxes-as-accounting, AI opponents, real authentication, exact Monopoly board,
+advanced animations, cloud deployment. The event card editor (PRD §26.5) is
+also out of scope.
+
+## MVP acceptance (PRD §31)
+
+The MVP is acceptable when all of the following hold:
+
+- [x] Teacher can create a game room.
+- [x] Students can join teams.
+- [x] Teacher can choose Cash Basis or Accrual Basis.
+- [x] Teacher can set property allocation to 0%, 25%, 50%, or 75%.
+- [x] Properties can be assigned at game start.
+- [x] Teams can roll dice and move around the board.
+- [x] Teams can buy properties.
+- [x] Teams can pay and receive rent.
+- [x] Cash event deck works in Cash Basis Mode.
+- [x] Accrual event deck works in Accrual Basis Mode.
+- [x] Students must submit debit and credit accounts after transactions.
+- [x] System validates journal entries.
+- [x] Journal entries post to T-accounts.
+- [x] Income statement and balance sheet generate correctly.
+- [x] Cash summary generates correctly.
+- [x] In Accrual Mode, A/R and A/P are tracked.
+- [x] In Accrual Mode, players can pay rent on credit.
+- [x] In Accrual Mode, prepaids adjust at year-end.
+- [x] Passing GO triggers year-end.
+- [x] Loans charge interest per dice roll.
+- [x] Teacher can pause, reveal answer, and force next turn.
 
 ---
 

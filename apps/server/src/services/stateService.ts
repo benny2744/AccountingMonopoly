@@ -16,26 +16,12 @@ export interface TeamView {
 }
 
 export interface GameState {
-  game: Game;
+  game: Omit<Game, "teacherPinHash">;
   teams: TeamView[];
   spaces: BoardSpace[];
   properties: Property[];
-  pending: {
-    kind: string;
-    payload: unknown;
-    expectedEntries: unknown[];
-    status: string;
-    attempts: number;
-    teamId: string;
-  } | null;
-  yearEndPendings: {
-    kind: string;
-    payload: unknown;
-    expectedEntries: unknown[];
-    status: string;
-    attempts: number;
-    teamId: string;
-  }[];
+  pending: ReturnType<typeof pendingToView> | null;
+  yearEndPendings: ReturnType<typeof pendingToView>[];
   events: GameEvent[];
   creditBalances: CreditBalance[];
 }
@@ -43,6 +29,7 @@ export interface GameState {
 export function getGameState(gameId: string): GameState {
   const game = queries.gameById(gameId);
   if (!game) throw new Error("Game not found");
+  const { teacherPinHash: _pin, ...gamePublic } = game;
   const teams = queries.teamsByGame(gameId);
   const props = queries.propertiesByGame(gameId);
   const cbs = queries.creditBalancesByGame(gameId);
@@ -63,7 +50,7 @@ export function getGameState(gameId: string): GameState {
   const yearEndPendings = queries.yearEndPendingsByGame(gameId);
 
   return {
-    game,
+    game: gamePublic,
     teams: teamViews,
     spaces: queries.spacesByGame(gameId),
     properties: props,

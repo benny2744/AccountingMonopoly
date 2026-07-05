@@ -43,6 +43,8 @@ const createGameSchema = z.object({
   propertyAllocationRatio: z.union([z.literal(0), z.literal(0.25), z.literal(0.5), z.literal(0.75)]),
   startingCash: z.number().int().min(0),
   startingLoanLimit: z.number().int().min(0),
+  allowStudentFullHint: z.boolean().optional(),
+  showScores: z.boolean().optional(),
 });
 
 gamesRouter.post("/", (req, res, next) => {
@@ -356,6 +358,114 @@ gamesRouter.get("/:gameId/teams/:teamId/arap", (req, res, next) => {
     const teams = queries.teamsByGame(req.params.gameId);
     const cbs = queries.creditBalancesByGame(req.params.gameId);
     res.json(accounting.generateARAPSchedule(req.params.teamId, teams, cbs));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---- Phase 5: hints, scoring, end-game, export ----
+
+// Returns the hint text for the active team's pending journal entry at the
+// requested level (1–4). Level 4 is gated by the game's allowStudentFullHint
+// setting; if disabled, level 4 falls back to level 3 text and the response
+// flags `gated` so the UI can tell the student to ask the teacher.
+gamesRouter.post("/:gameId/hint", (req, res, next) => {
+  try {
+    const { level } = z.object({ level: z.number().int().min(1).max(4) }).parse(req.body);
+    const game = queries.gameById(req.params.gameId);
+    if (!game) throw new GameError("NOT_FOUND", "Game not found");
+    const pending = queries.pendingByGame(req.params.gameId);
+    if (!pending || pending.status !== "awaiting_journal") {
+      throw new GameError("NO_PENDING", "No pending journal entry");
+    }
+    requireTeamSession(req.header("Authorization"), req.params.gameId, pending.teamId);
+    const expected = (pending.expectedEntries as any[]).find((e) => e.teamId === pending.teamId) ??
+      (pending.expectedEntries as any[])[0];
+    if (!expected) throw new GameError("NO_PENDING", "Pending action has no expected entry");
+    const allowFull = game.settings.allowStudentFullHint ?? false;
+    const effectiveLevel = level === 4 && !allowFull ? 3 : level;
+    const text = accounting.getHint(expected, effectiveLevel as 1 | 2 | 3 | 4);
+    const hintsUsed = queries.incPendingHints(pending.id);
+    broadcast(req, req.params.gameId);
+    res.json({ level: effectiveLevel, text, hintsUsed, gated: level === 4 && !allowFull });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// End the game (sets status to "ended"); Phase 5 §2.
+gamesRouter.post("/:gameId/end", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const { endGame } = await import("../services/gameService.js");
+    const game = await withGameLock(req.params.gameId, () => endGame(req.params.gameId));
+    broadcast(req, req.params.gameId);
+    res.json(getGameState(game.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Clone a game's settings into a new room ("Play again with same settings").
+gamesRouter.post("/:gameId/clone", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const src = queries.gameById(req.params.gameId);
+    if (!src) throw new GameError("NOT_FOUND", "Game not found");
+    const { teacherPin } = z.object({ teacherPin: z.string().min(1) }).parse(req.body);
+    const cloned = createGame({
+      teacherPin,
+      difficulty: src.difficulty,
+      numberOfTeams: queries.teamsByGame(src.id).length,
+      propertyAllocationRatio: src.settings.propertyAllocationRatio,
+      startingCash: src.settings.startingCash,
+      startingLoanLimit: src.settings.startingLoanLimit,
+      allowStudentFullHint: src.settings.allowStudentFullHint,
+      showScores: src.settings.showScores,
+    });
+    const session = createTeacherSession(cloned.id, teacherPin);
+    res.status(201).json({ game: cloned, sessionToken: session.token });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Per-team score breakdown (Phase 5 §3 leaderboard source).
+gamesRouter.get("/:gameId/scores", (_req, res, next) => {
+  try {
+    const gameId = _req.params.gameId;
+    const teams = queries.teamsByGame(gameId);
+    const scores = teams.map((t) => {
+      const snaps = queries.yearSnapshotsForTeam(t.id);
+      const latest = snaps[snaps.length - 1];
+      return {
+        teamId: t.id,
+        name: t.name,
+        color: t.color,
+        score: latest?.cumulativeScore ?? 0,
+        yearSnapshots: snaps.map((s) => ({ year: s.year, score: s.score ?? 0, cumulative: s.cumulativeScore })),
+      };
+    });
+    res.json({ scores });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Export (PRD §19.1). JSON = full event-sourced record; CSV = teacher-graded workbook.
+gamesRouter.get("/:gameId/export", async (req, res, next) => {
+  try {
+    const format = (req.query.format as string | undefined) ?? "json";
+    const { exportGame } = await import("../services/exportService.js");
+    const out = exportGame(req.params.gameId, format as "json" | "csv");
+    if (format === "csv") {
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="game-${req.params.gameId}.csv"`);
+    } else {
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="game-${req.params.gameId}.json"`);
+    }
+    res.send(out);
   } catch (e) {
     next(e);
   }

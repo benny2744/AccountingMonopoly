@@ -6,12 +6,17 @@
   "scripts": {
     "build": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/client/tsconfig.json --noEmit",
     "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/client/tsconfig.json --noEmit",
+    "dev": "concurrently -n server,client -c blue,magenta \"pnpm --filter @amono/server dev\" \"pnpm --filter @amono/client dev\"",
+    "dev:server": "pnpm --filter @amono/server dev",
+    "dev:client": "pnpm --filter @amono/client dev",
+    "start": "pnpm --filter @amono/client build && pnpm --filter @amono/server start",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "echo \"no linter configured\" && exit 0"
   },
   "devDependencies": {
+    "concurrently": "^9.1.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"
   }

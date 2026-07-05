@@ -7,10 +7,12 @@ import TeamDashboard from "./routes/TeamDashboard.js";
 import TeacherDashboard from "./routes/TeacherDashboard.js";
 import DisplayPage from "./routes/DisplayPage.js";
 import GameErrorToast from "./components/GameErrorToast.js";
+import ConnectionBanner from "./components/ConnectionBanner.js";
 
 export default function App() {
   return (
     <>
+      <ConnectionBanner />
       <GameErrorToast />
       <Routes>
       <Route path="/" element={<LandingPage />} />

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api.js";
 import { useGameStore } from "../store.js";
 import { getChartOfAccounts } from "@amono/shared/accounting";
-import type { Difficulty } from "@amono/shared";
+import type { AccountType, Difficulty } from "@amono/shared";
 import type { PendingAction, TeamView } from "../api.js";
 
 export default function JournalEntryPanel({
@@ -20,7 +20,23 @@ export default function JournalEntryPanel({
   const [debit, setDebit] = useState("");
   const [credit, setCredit] = useState("");
   const [amount, setAmount] = useState<number>(0);
-  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string; balanceChanges?: { accountName: string; before: number; after: number }[] } | null>(null);
+  const [hintLevel, setHintLevel] = useState(0);
+  const [hintText, setHintText] = useState<string | null>(null);
+  const [hintGated, setHintGated] = useState(false);
+
+  async function showNextHint() {
+    const next = Math.min(hintLevel + 1, 4);
+    if (next > 4) return;
+    try {
+      const r = await api.hint(gameId, next);
+      setHintLevel(r.level);
+      setHintText(r.text);
+      setHintGated(r.gated);
+    } catch (e) {
+      setFeedback({ ok: false, text: (e as Error).message });
+    }
+  }
 
   const expected = (pending.expectedEntries || []).find((e: any) => e.teamId === currentTeam.team.id) ?? (pending.expectedEntries || [])[0];
   const expectedAmount: number = expected?.lines?.find((l: any) => l.debit > 0)?.debit ?? 0;
@@ -45,8 +61,9 @@ export default function JournalEntryPanel({
       const { result, state } = await api.submitJournal(gameId, currentTeam.team.id, debit, credit, amount);
       setState(state);
       if (result.correct) {
-        setFeedback({ ok: true, text: result.feedback });
+        setFeedback({ ok: true, text: result.feedback, balanceChanges: result.balanceChanges });
         setDebit(""); setCredit(""); setAmount(0);
+        setHintLevel(0); setHintText(null); setHintGated(false);
       } else {
         setFeedback({ ok: false, text: `${result.feedback} (${result.errors.join(", ")})` });
       }
@@ -108,7 +125,16 @@ export default function JournalEntryPanel({
       </div>
       {feedback && (
         <div className={`mt-3 rounded-lg p-3 text-sm ${feedback.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}>
-          {feedback.text}
+          <div>{feedback.text}</div>
+          {feedback.balanceChanges && feedback.balanceChanges.length > 0 && (
+            <ul className="mt-2 space-y-1 font-mono text-xs">
+              {feedback.balanceChanges.map((c) => (
+                <li key={c.accountName}>
+                  {c.accountName}: {c.before} → {c.after}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       <div className="flex gap-2 mt-3">
@@ -116,34 +142,51 @@ export default function JournalEntryPanel({
           Submit Entry
         </button>
         <button
-          onClick={() => { setDebit(""); setCredit(""); setAmount(0); setFeedback(null); }}
+          onClick={showNextHint}
+          disabled={hintLevel >= 4}
+          className="border border-amber-300 bg-amber-50 text-amber-800 px-4 py-2 rounded-lg font-medium hover:bg-amber-100 disabled:opacity-50"
+          title={hintLevel === 0 ? "Get a hint — levels step from effect → accounts → direction → full answer" : `Hint level ${hintLevel} of 4`}
+        >
+          {hintLevel === 0 ? "💡 Hint" : hintLevel >= 4 ? "Hints used" : `💡 Hint (${hintLevel}/4)`}
+        </button>
+        <button
+          onClick={() => { setDebit(""); setCredit(""); setAmount(0); setFeedback(null); setHintLevel(0); setHintText(null); }}
           className="border border-slate-300 px-4 py-2 rounded-lg"
         >
           Clear
         </button>
       </div>
+      {hintText && (
+        <div className="mt-3 rounded-lg p-3 text-sm bg-amber-50 border border-amber-200 text-amber-900">
+          <div className="font-semibold mb-1">Hint level {hintLevel} of 4</div>
+          {hintText}
+          {hintGated && <div className="text-xs mt-1 italic">Full answer is teacher-gated — ask your teacher to reveal it.</div>}
+        </div>
+      )}
     </div>
   );
 }
 
 function AccountSelect({ label, value, onChange, difficulty }: { label: string; value: string; onChange: (v: string) => void; difficulty: Difficulty }) {
   const list = getChartOfAccounts(difficulty);
-  const grouped = {
+  const grouped: Record<string, { name: string; type: AccountType }[]> = {
     Assets: list.filter((a) => a.type === "asset"),
     Liabilities: list.filter((a) => a.type === "liability"),
     Equity: list.filter((a) => a.type === "equity"),
     Revenue: list.filter((a) => a.type === "revenue"),
     Expenses: list.filter((a) => a.type === "expense"),
   };
+  // Normal balance caption: assets & expenses are debit-normal; the rest are credit-normal.
+  const normalSide = (t: AccountType): "Dr" | "Cr" => (t === "asset" || t === "expense" ? "Dr" : "Cr");
   return (
     <label className="block">
       <span className="text-xs font-medium text-slate-600 block mb-1">{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2">
         <option value="">— select —</option>
         {Object.entries(grouped).map(([group, accs]) => (
-          <optgroup key={group} label={group}>
+          <optgroup key={group} label={`${group} (normal side shown)`}>
             {accs.map((a) => (
-              <option key={a.name} value={a.name}>{a.name}</option>
+              <option key={a.name} value={a.name}>{a.name} · {normalSide(a.type)}</option>
             ))}
           </optgroup>
         ))}

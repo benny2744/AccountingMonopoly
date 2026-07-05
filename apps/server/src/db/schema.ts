@@ -164,6 +164,8 @@ export function runMigrations(): void {
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
       year INTEGER NOT NULL,
       statements TEXT NOT NULL,
+      score INTEGER,
+      cumulative_score INTEGER DEFAULT 0,
       created_at TEXT NOT NULL,
       UNIQUE(team_id, year)
     );
@@ -185,6 +187,23 @@ export function runMigrations(): void {
   // their current landing action resolves (set when they pass GO).
   try {
     db.exec(`ALTER TABLE teams ADD COLUMN pending_year_end INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already present.
+  }
+  // Phase 5: hint usage per pending action (feeds scoring).
+  try {
+    db.exec(`ALTER TABLE pending_actions ADD COLUMN hints_used INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already present.
+  }
+  // Phase 5: score columns on year_snapshots for older databases.
+  try {
+    db.exec(`ALTER TABLE year_snapshots ADD COLUMN score INTEGER`);
+  } catch {
+    // Column already present.
+  }
+  try {
+    db.exec(`ALTER TABLE year_snapshots ADD COLUMN cumulative_score INTEGER DEFAULT 0`);
   } catch {
     // Column already present.
   }
