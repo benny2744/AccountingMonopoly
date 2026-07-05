@@ -202,6 +202,20 @@ async function journalCurrentPending(gameId: string, teamId: string, token: stri
   }, token);
 }
 
+/** Resolve every chained counterparty pending (multi-team event cards chain several receivers). */
+async function resolveCounterpartyChain(
+  gameId: string,
+  teamTokens: Record<string, string>,
+  initialResult: { chainedTo?: string },
+): Promise<void> {
+  let chainedTo = initialResult.chainedTo;
+  for (let i = 0; i < 8 && chainedTo; i++) {
+    const res = await journalCurrentPending(gameId, chainedTo, teamTokens[chainedTo]!);
+    expect(res.ok).toBe(true);
+    chainedTo = res.json.result?.chainedTo as string | undefined;
+  }
+}
+
 describe("game lifecycle (Phase 2 integration)", () => {
   it("creates, starts, allocates opening entries, balance sheets balance", async () => {
     const gameId = await createAndStart();
@@ -247,14 +261,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
       amount: debit.debit,
     }, teamTokens[teamId]);
     expect(res.json.result.correct).toBe(true);
-
-    // If the entry chains to a counterparty, journal their side too.
-    if (res.json.result.chainedTo) {
-      const ct: string = res.json.result.chainedTo;
-      const tk = teamTokens[ct]!;
-      const receiverRes = await journalCurrentPending(gameId, ct, tk);
-      expect(receiverRes.ok).toBe(true);
-    }
+    await resolveCounterpartyChain(gameId, teamTokens, res.json.result);
 
     const after = await get(`/api/games/${gameId}`);
     expect(after.pending).toBeNull();
@@ -277,11 +284,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
       amount: debit.debit,
     }, teamTokens[teamId]);
 
-    // Resolve any chained counterparty pending before ending the turn.
-    if (res.json.result?.chainedTo) {
-      const ct: string = res.json.result.chainedTo;
-      await journalCurrentPending(gameId, ct, teamTokens[ct]!);
-    }
+    await resolveCounterpartyChain(gameId, teamTokens, res.json.result ?? {});
 
     const secondRoll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
     expect(secondRoll.ok).toBe(false);
@@ -422,6 +425,43 @@ describe("game lifecycle (Phase 2 integration)", () => {
     const state = await get(`/api/games/${gameId}`, token);
     expect(state.teams).toHaveLength(3);
   });
+
+  it("add after remove reuses vacated name slot without collision", async () => {
+    const { json } = await post("/api/games", {
+      teacherPin: "1234",
+      difficulty: "cash",
+      numberOfTeams: 2,
+      propertyAllocationRatio: 0,
+      startingCash: 1500,
+      startingLoanLimit: 500,
+    });
+    const gameId = json.game.id;
+    const token = json.sessionToken;
+
+    const added = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(added.ok).toBe(true);
+
+    const beforeRemove = await get(`/api/games/${gameId}`, token);
+    const middleTeam = beforeRemove.teams[1]!.team;
+
+    const remove = await fetch(B() + `/api/games/${gameId}/teams/${middleTeam.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(remove.ok).toBe(true);
+
+    const readded = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(readded.ok).toBe(true);
+    expect(readded.json.team.name).toBe(middleTeam.name);
+
+    const after = await get(`/api/games/${gameId}`, token);
+    expect(after.teams).toHaveLength(3);
+    const names = after.teams.map((t: { team: { name: string } }) => t.team.name);
+    const colors = after.teams.map((t: { team: { color: string } }) => t.team.color);
+    expect(new Set(names).size).toBe(names.length);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
   it("cannot remove a joined team or go below 2 teams", async () => {
     const { gameId, token, teamTokens } = await createGameWithSession({ numberOfTeams: 3 });
     const joinedTeamId = Object.keys(teamTokens)[0]!;

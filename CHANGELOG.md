@@ -53,10 +53,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `ActionModal` overlay pattern reused by `CardRevealModal` for visual
   consistency.
 
+### Fixed
+- **Flaky integration test**: `game.integration.test.ts` now resolves the
+  full counterparty chain (multi-receiver event cards) before end-turn, so
+  `PENDING_OPEN` no longer fails CI intermittently.
+- **Dice animation stuck on broadcast**: `useDiceRoll` keys its settle timer
+  off the roll event id instead of the whole game state, so mid-roll socket
+  broadcasts no longer cancel the 1.5s tumble or freeze token movement.
+- **Dice spinner on failed roll**: a failed `api.roll` clears the optimistic
+  roll trigger so the board dice stop tumbling when the server rejects the
+  roll (year-end open, wrong phase, etc.).
+- **Lobby add-after-remove collision**: `addTeam` uses `max(join_order)+1` and
+  reuses the first unused name/color slot instead of `teams.length`, so
+  remove-then-add no longer duplicates team identity.
+- **`forceNextTurn` ledger gap**: when skipping past an open
+  `counterparty_entry`, the server now auto-posts the receiver's expected
+  entries (same as Reveal) so payer cash-out is not left half-recorded.
+
 ### Tests
 - 6 new integration tests covering lobby add/remove rules, rent receiver
   journaling, multi-team card chaining through every receiver, and teacher
-  reveal auto-posting all counterparties. Total 124/124 passing.
+  reveal auto-posting all counterparties. Post-review fixes add lobby
+  remove-then-add regression and `forceNextTurn` counterparty auto-post.
+  Total **126/126** passing.
 
 ---
 

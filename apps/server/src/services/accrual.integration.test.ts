@@ -580,6 +580,58 @@ describe("Phase 4 — accrual mode", () => {
     expect(queries.pendingByGame(s.gameId)).toBeNull();
   });
 
+  it("forceNextTurn auto-posts counterparty rent entry for receiver", () => {
+    const s = makeAccrualGame(2);
+    const debtor = s.teamIds[0]!;
+    const creditor = s.teamIds[1]!;
+
+    givePropertyTo(s.gameId, creditor);
+    const prop = queries.propertiesByGame(s.gameId).find((p) => p.ownerTeamId === creditor)!;
+    const debtorStart = balanceOf(debtor, "Cash");
+    const creditorStart = balanceOf(creditor, "Cash");
+
+    setCurrentTeam(s.gameId, debtor, "resolving");
+    getDb().prepare("DELETE FROM pending_actions WHERE game_id = ?").run(s.gameId);
+    const rentAmount = 50;
+    const expected = accounting.rentPaidCash(debtor, creditor, rentAmount);
+    getDb()
+      .prepare(
+        `INSERT INTO pending_actions (id, game_id, team_id, kind, payload, expected_entries, status, attempts, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        s.gameId,
+        debtor,
+        "rent_due",
+        JSON.stringify({ propertyId: prop.id, rent: rentAmount, ownerTeamId: creditor, choices: ["cash"] }),
+        JSON.stringify(expected),
+        "awaiting_journal",
+        0,
+        new Date().toISOString(),
+      );
+
+    const debtorEntry = expected.find((e) => e.teamId === debtor)!;
+    const dr = debtorEntry.lines.find((l) => l.debit > 0)!;
+    const cr = debtorEntry.lines.find((l) => l.credit > 0)!;
+    const r1 = submitJournalEntry(s.gameId, debtor, {
+      debitAccount: dr.accountName,
+      creditAccount: cr.accountName,
+      amount: dr.debit,
+    });
+    expect(r1.correct).toBe(true);
+    expect(r1.chainedTo).toBe(creditor);
+    expect(balanceOf(debtor, "Cash")).toBe(debtorStart - rentAmount);
+    expect(balanceOf(creditor, "Cash")).toBe(creditorStart);
+
+    forceNextTurn(s.gameId);
+
+    expect(balanceOf(creditor, "Cash")).toBe(creditorStart + rentAmount);
+    expect(queries.pendingByGame(s.gameId)).toBeNull();
+    const game = queries.gameById(s.gameId);
+    expect(game!.turnPhase).toBe("awaiting_roll");
+    expect(game!.currentTeamId).toBe(creditor);
+  });
+
   it("multi-team card chains through every receiver", () => {
     const s = makeAccrualGame(3);
     const a = s.teamIds[0]!;

@@ -112,10 +112,12 @@ the schema on next start.
   cycling) and step-through token animation that begins once the dice settles.
 - **Two-sided journaling**: when a team pays rent (or settles a multi-team
   event card), the **receiving team** also records their own journal entry
-  before the turn advances — no silent auto-posts. Teacher Reveal still
-  auto-posts to unblock the room.
+  before the turn advances — no silent auto-posts. Teacher **Reveal Answer**
+  and **Force next turn** auto-post any open counterparty entry so the
+  teacher can unblock the room without lopsided books.
 - **Lobby team management**: add up to 4 / remove down to 2 unjoined team
-  slots before the game starts; default 2 teams.
+  slots before the game starts (remove-then-add reuses vacated name/color
+  slots); default 2 teams.
 - **Properties tab**: owned properties, house/hotel status, and rent tables for
   each team and on the teacher dashboard.
 - **Multi-tab fix**: each browser tab keeps its own session token so teacher +

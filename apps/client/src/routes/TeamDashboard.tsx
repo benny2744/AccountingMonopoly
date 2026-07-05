@@ -132,6 +132,7 @@ export default function TeamDashboard() {
                       turnPhase={state.game.turnPhase}
                       onError={setSocketError}
                       onRollStart={() => setRollTrigger(true)}
+                      onRollEnd={() => setRollTrigger(false)}
                     />
                   ) : undefined
                 }
@@ -193,12 +194,14 @@ function TurnControls({
   turnPhase,
   onError,
   onRollStart,
+  onRollEnd,
 }: {
   gameId: string;
   teamId: string;
   turnPhase: "awaiting_roll" | "resolving" | "awaiting_end";
   onError: (e: { code: string; message: string }) => void;
   onRollStart?: () => void;
+  onRollEnd?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   async function act(path: "roll" | "end-turn") {
@@ -207,6 +210,7 @@ function TurnControls({
       if (path === "roll") onRollStart?.();
       await (path === "roll" ? api.roll(gameId, teamId) : api.endTurn(gameId));
     } catch (e) {
+      if (path === "roll") onRollEnd?.();
       onError({ code: "ERROR", message: (e as Error).message });
     } finally {
       setBusy(false);

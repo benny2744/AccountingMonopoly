@@ -1,9 +1,9 @@
-import type { Game, GameSettings, Property, Team } from "@amono/shared";
+import type { ExpectedEntry, Game, GameSettings, Property, Team } from "@amono/shared";
 import { accounting, game as gameData } from "@amono/shared";
 import { getDb } from "../db/client.js";
 import { queries } from "../db/queries.js";
 import { logEvent } from "./eventLog.js";
-import { postEntry } from "./accountingService.js";
+import { postEntry, postExpectedAsSystem } from "./accountingService.js";
 import { now, roomCode, sha256, uuid } from "../util/ids.js";
 import { countJoinedTeams } from "./sessionsService.js";
 
@@ -253,14 +253,26 @@ export function addTeam(gameId: string): Team {
   if (teams.length >= MAX_TEAMS) {
     throw new GameError("TOO_MANY_TEAMS", `Maximum ${MAX_TEAMS} teams`);
   }
-  const nextIndex = teams.length; // 0-based join order for the new team
+  const maxJoin = getDb()
+    .prepare("SELECT COALESCE(MAX(join_order), -1) AS m FROM teams WHERE game_id = ?")
+    .get(gameId) as { m: number };
+  const nextJoinOrder = maxJoin.m + 1;
+  const usedNames = new Set(teams.map((t) => t.name));
+  let slotIndex = 0;
+  for (let i = 0; i < 8; i++) {
+    if (!usedNames.has(teamName(i))) {
+      slotIndex = i;
+      break;
+    }
+  }
+  const newId = uuid();
   getDb()
     .prepare(
       `INSERT INTO teams (id, game_id, name, color, position, current_year, credit_limit, is_active, join_order) VALUES (?,?,?,?,?,?,?,?,?)`,
     )
-    .run(uuid(), gameId, teamName(nextIndex), teamColor(nextIndex), 0, 1, game.settings.startingLoanLimit, 0, nextIndex);
-  logEvent(gameId, null, "teacher_override", { action: "add_team", teamName: teamName(nextIndex) });
-  return queries.teamsByGame(gameId)[nextIndex]!;
+    .run(newId, gameId, teamName(slotIndex), teamColor(slotIndex), 0, 1, game.settings.startingLoanLimit, 0, nextJoinOrder);
+  logEvent(gameId, null, "teacher_override", { action: "add_team", teamName: teamName(slotIndex) });
+  return queries.teamsByGame(gameId).find((t) => t.id === newId)!;
 }
 
 /** Lobby-only: remove a team slot. Rejects if joined or below MIN_TEAMS. */
@@ -319,15 +331,32 @@ export function forceNextTurn(gameId: string): Game {
   if (game.status !== "active" && game.status !== "paused") {
     throw new GameError("INVALID_STATE", `Game is ${game.status}`);
   }
+  const teams = queries.teamsByGame(gameId);
+  const pending = queries.pendingByGame(gameId);
+  const autoPostedTeams: string[] = [];
+  if (pending?.kind === "counterparty_entry") {
+    const expectedEntries = pending.expectedEntries as ExpectedEntry[];
+    const turnId = String(game.currentTurnNumber);
+    for (const e of expectedEntries) {
+      const receiver = teams.find((t) => t.id === e.teamId);
+      if (!receiver) continue;
+      postExpectedAsSystem(gameId, e.teamId, turnId, e, receiver.currentYear);
+      autoPostedTeams.push(e.teamId);
+    }
+  }
   // Close turn pendings only — year-end checklists stay open per team.
   getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE game_id = ? AND status != 'done' AND kind != 'year_end'").run(gameId);
-  const teams = queries.teamsByGame(gameId);
   const idx = teams.findIndex((t) => t.id === game.currentTeamId);
   const next = teams[(idx + 1) % teams.length]!;
   const ts = now();
   getDb()
     .prepare("UPDATE games SET status = 'active', current_team_id = ?, current_turn_number = current_turn_number + 1, turn_phase = ?, updated_at = ? WHERE id = ?")
     .run(next.id, "awaiting_roll", ts, gameId);
-  logEvent(gameId, null, "teacher_override", { action: "force_next_turn", fromTeamId: game.currentTeamId, toTeamId: next.id });
+  logEvent(gameId, null, "teacher_override", {
+    action: "force_next_turn",
+    fromTeamId: game.currentTeamId,
+    toTeamId: next.id,
+    autoPostedCounterpartyTeams: autoPostedTeams.length > 0 ? autoPostedTeams : undefined,
+  });
   return queries.gameById(gameId)!;
 }

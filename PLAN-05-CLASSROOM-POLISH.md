@@ -23,7 +23,7 @@ Depends on: Phase 4 complete (shipped, including review fixes — see PLAN-04 "A
 - "Stuck team" detection surfaced as a badge with elapsed time on the teacher dashboard team table (`pending_actions.created_at` gives the start time; no schema change needed).
 - Game reset: teacher can end a game (`status: "ended"` exists in `GameStatus` but **no endpoint sets it yet** — add one) and clone its settings into a fresh room in one click ("Play again with same settings").
 - Replace the remaining `alert()` error surfaces in `TeacherDashboard` (credit-limit and year-end trigger panels) with the standard toast/error pattern.
-- Note: Phase 4 already covers two recovery paths — teacher can trigger/advance any team's year-end checklist (self-or-teacher auth), and `forceNextTurn` skips turn pendings while **preserving open year-end checklists**.
+- Note: Phase 4 already covers two recovery paths — teacher can trigger/advance any team's year-end checklist (self-or-teacher auth), and `forceNextTurn` skips turn pendings while **preserving open year-end checklists** and auto-posting any open `counterparty_entry` so receiver-side books stay balanced.
 
 ## 3. Scoring & leaderboard (PRD §25)
 

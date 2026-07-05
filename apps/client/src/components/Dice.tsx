@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { GameState } from "../api.js";
 
 const ROLL_MS = 1500;
@@ -13,24 +13,21 @@ export function useDiceRoll(state: GameState | null): {
   rolling: boolean;
   total: number | null;
 } {
-  const lastRollId = useRef<string | null>(null);
   const [dice, setDice] = useState<[number, number] | null>(null);
   const [rolling, setRolling] = useState(false);
 
+  const rollEvent = state ? [...state.events].reverse().find((e) => e.type === "roll") : null;
+  const rollPayload = rollEvent?.payload as { dice: [number, number] } | undefined;
+
   useEffect(() => {
-    if (!state) return;
-    const rollEvent = [...state.events].reverse().find((e) => e.type === "roll");
-    if (!rollEvent) return;
-    if (rollEvent.id === lastRollId.current) return;
-    lastRollId.current = rollEvent.id;
-    const payload = rollEvent.payload as { dice: [number, number] };
+    if (!rollEvent || !rollPayload) return;
     setRolling(true);
     const t = setTimeout(() => {
-      setDice(payload.dice);
+      setDice(rollPayload.dice);
       setRolling(false);
     }, ROLL_MS);
     return () => clearTimeout(t);
-  }, [state]);
+  }, [rollEvent?.id, rollPayload?.dice?.[0], rollPayload?.dice?.[1]]);
 
   return { dice, rolling, total: dice ? dice[0] + dice[1] : null };
 }
