@@ -7,7 +7,7 @@ import { createApp } from "../app.js";
 import { createGame, startGame, forceNextTurn } from "./gameService.js";
 import { queries } from "../db/queries.js";
 import { createTeacherSession, createTeamSession, createDisplaySession } from "./sessionsService.js";
-import { roll, resolveChoice, submitJournalEntry, endTurn, takeLoanForPendingFee } from "./turnService.js";
+import { roll, resolveChoice, submitJournalEntry, endTurn, takeLoanForPendingFee, revealAnswer } from "./turnService.js";
 import { startYearEnd, resolveYearEndStep, buildYearEndSteps } from "./yearEndService.js";
 import { balanceOf, postExpectedAsSystem } from "./accountingService.js";
 import { accounting } from "@amono/shared";
@@ -116,7 +116,7 @@ function setTeamPosition(teamId: string, position: number): void {
   getDb().prepare("UPDATE teams SET position = ? WHERE id = ?").run(position, teamId);
 }
 
-function setCurrentTeam(gameId: string, teamId: string, turnPhase: "awaiting_roll" | "awaiting_end" = "awaiting_roll"): void {
+function setCurrentTeam(gameId: string, teamId: string, turnPhase: "awaiting_roll" | "awaiting_end" | "resolving" = "awaiting_roll"): void {
   getDb().prepare("UPDATE games SET current_team_id = ?, turn_phase = ? WHERE id = ?").run(teamId, turnPhase, gameId);
 }
 
@@ -409,12 +409,13 @@ describe("Phase 4 — accrual mode", () => {
     }
   });
 
-  it("passing GO on a rest landing opens year-end checklist the same turn", () => {
+  it("passing GO opens year-end checklist the same turn", () => {
     const s = makeAccrualGame(2);
     const teamId = s.teamIds[0]!;
     setCurrentTeam(s.gameId, teamId);
-    setTeamPosition(teamId, 23);
-    const spy = mockDice(6, 6);
+    // Wrap past GO and land on Free Parking (index 20).
+    setTeamPosition(teamId, 30);
+    const spy = mockDice(5, 5);
     roll(s.gameId, teamId);
     spy.mockRestore();
 
@@ -434,6 +435,7 @@ describe("Phase 4 — accrual mode", () => {
     const spy = mockDice(1, 1);
     roll(s.gameId, teamB);
     spy.mockRestore();
+    resolveChoice(s.gameId, teamB, { choice: "skip" });
     endTurn(s.gameId);
 
     setCurrentTeam(s.gameId, teamA);
@@ -448,7 +450,7 @@ describe("Phase 4 — accrual mode", () => {
     const teamId = s.teamIds[0]!;
     primeDeck(s.gameId, ["accrual_player_rent_credit"]);
     setCurrentTeam(s.gameId, teamId);
-    setTeamPosition(teamId, 4);
+    setTeamPosition(teamId, 5);
     const spy = mockDice(1, 1);
     roll(s.gameId, teamId);
     spy.mockRestore();
@@ -464,7 +466,7 @@ describe("Phase 4 — accrual mode", () => {
     const teamId = s.teamIds[0]!;
     primeDeck(s.gameId, ["accrual_software_subscription"]);
     setCurrentTeam(s.gameId, teamId);
-    setTeamPosition(teamId, 4);
+    setTeamPosition(teamId, 15);
     const spy = mockDice(1, 1);
     roll(s.gameId, teamId);
     spy.mockRestore();
@@ -501,5 +503,181 @@ describe("Phase 4 — accrual mode", () => {
       s.teacherToken,
     );
     expect(teacherResolve.status).toBe(200);
+  });
+
+  it("receiver must journal their own entry after the payer records rent", () => {
+    const s = makeAccrualGame(2);
+    const debtor = s.teamIds[0]!;
+    const creditor = s.teamIds[1]!;
+
+    givePropertyTo(s.gameId, creditor);
+    const prop = queries.propertiesByGame(s.gameId).find((p) => p.ownerTeamId === creditor)!;
+    const debtorStart = balanceOf(debtor, "Cash");
+    const creditorStart = balanceOf(creditor, "Cash");
+
+    // Directly create a rent_due pending to isolate the receiver flow.
+    setCurrentTeam(s.gameId, debtor, "resolving");
+    getDb().prepare("DELETE FROM pending_actions WHERE game_id = ?").run(s.gameId);
+    const rentAmount = 50;
+    const expected = accounting.rentPaidCash(debtor, creditor, rentAmount);
+    getDb()
+      .prepare(
+        `INSERT INTO pending_actions (id, game_id, team_id, kind, payload, expected_entries, status, attempts, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        s.gameId,
+        debtor,
+        "rent_due",
+        JSON.stringify({ propertyId: prop.id, rent: rentAmount, ownerTeamId: creditor, choices: ["cash"] }),
+        JSON.stringify(expected),
+        "awaiting_journal",
+        0,
+        new Date().toISOString(),
+      );
+
+    // Debtor journals their entry.
+    const debtorEntry = expected.find((e) => e.teamId === debtor)!;
+    const dr = debtorEntry.lines.find((l) => l.debit > 0)!;
+    const cr = debtorEntry.lines.find((l) => l.credit > 0)!;
+    const r1 = submitJournalEntry(s.gameId, debtor, {
+      debitAccount: dr.accountName,
+      creditAccount: cr.accountName,
+      amount: dr.debit,
+    });
+    expect(r1.correct).toBe(true);
+    expect(r1.chainedTo).toBe(creditor);
+
+    // The turn has NOT advanced to awaiting_end; a counterparty pending exists.
+    const game1 = queries.gameById(s.gameId);
+    expect(game1!.turnPhase).toBe("resolving");
+    const receiverPending = queries.pendingByGame(s.gameId);
+    expect(receiverPending).not.toBeNull();
+    expect(receiverPending!.teamId).toBe(creditor);
+    expect(receiverPending!.kind).toBe("counterparty_entry");
+    expect(receiverPending!.status).toBe("awaiting_journal");
+
+    // Debtor's cash already dropped; creditor's cash not yet.
+    expect(balanceOf(debtor, "Cash")).toBe(debtorStart - rentAmount);
+    expect(balanceOf(creditor, "Cash")).toBe(creditorStart);
+
+    // Receiver journals their entry.
+    const creditorEntry = (receiverPending!.expectedEntries as any[]).find((e) => e.teamId === creditor)!;
+    const dr2 = creditorEntry.lines.find((l: any) => l.debit > 0)!;
+    const cr2 = creditorEntry.lines.find((l: any) => l.credit > 0)!;
+    const r2 = submitJournalEntry(s.gameId, creditor, {
+      debitAccount: dr2.accountName,
+      creditAccount: cr2.accountName,
+      amount: dr2.debit,
+    });
+    expect(r2.correct).toBe(true);
+    expect(r2.chainedTo).toBeUndefined();
+
+    // Turn now advances; creditor's cash increased.
+    const game2 = queries.gameById(s.gameId);
+    expect(game2!.turnPhase).toBe("awaiting_end");
+    expect(balanceOf(creditor, "Cash")).toBe(creditorStart + rentAmount);
+    expect(queries.pendingByGame(s.gameId)).toBeNull();
+  });
+
+  it("multi-team card chains through every receiver", () => {
+    const s = makeAccrualGame(3);
+    const a = s.teamIds[0]!;
+    const b = s.teamIds[1]!;
+    const c = s.teamIds[2]!;
+
+    // Build a multi_team_pay card: team A pays each other team $25.
+    const perTeam = 25;
+    const expected = accounting.multiTeamEventPay(a, [b, c], perTeam, "Payday pool");
+    setCurrentTeam(s.gameId, a, "resolving");
+    getDb().prepare("DELETE FROM pending_actions WHERE game_id = ?").run(s.gameId);
+    getDb()
+      .prepare(
+        `INSERT INTO pending_actions (id, game_id, team_id, kind, payload, expected_entries, status, attempts, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        s.gameId,
+        a,
+        "event_card",
+        JSON.stringify({ card: { title: "Payday pool", mode: "cash", kind: "multi_team_pay", perTeamAmount: perTeam } }),
+        JSON.stringify(expected),
+        "awaiting_journal",
+        0,
+        new Date().toISOString(),
+      );
+
+    const aEntry = expected.find((e) => e.teamId === a)!;
+    const aDr = aEntry.lines.find((l) => l.debit > 0)!;
+    const aCr = aEntry.lines.find((l) => l.credit > 0)!;
+    const r1 = submitJournalEntry(s.gameId, a, {
+      debitAccount: aDr.accountName,
+      creditAccount: aCr.accountName,
+      amount: aDr.debit,
+    });
+    expect(r1.chainedTo).toBe(b);
+
+    let p = queries.pendingByGame(s.gameId);
+    expect(p!.teamId).toBe(b);
+    const bEntries = p!.expectedEntries as any[];
+    expect(bEntries).toHaveLength(2); // b and c remaining
+
+    const bEntry = bEntries.find((e) => e.teamId === b)!;
+    const bDr = bEntry.lines.find((l: any) => l.debit > 0)!;
+    const bCr = bEntry.lines.find((l: any) => l.credit > 0)!;
+    const r2 = submitJournalEntry(s.gameId, b, {
+      debitAccount: bDr.accountName,
+      creditAccount: bCr.accountName,
+      amount: bDr.debit,
+    });
+    expect(r2.chainedTo).toBe(c);
+
+    p = queries.pendingByGame(s.gameId);
+    expect(p!.teamId).toBe(c);
+
+    const cEntry = (p!.expectedEntries as any[]).find((e) => e.teamId === c)!;
+    const cDr = cEntry.lines.find((l: any) => l.debit > 0)!;
+    const cCr = cEntry.lines.find((l: any) => l.credit > 0)!;
+    const r3 = submitJournalEntry(s.gameId, c, {
+      debitAccount: cDr.accountName,
+      creditAccount: cCr.accountName,
+      amount: cDr.debit,
+    });
+    expect(r3.chainedTo).toBeUndefined();
+    expect(queries.gameById(s.gameId)!.turnPhase).toBe("awaiting_end");
+  });
+
+  it("teacher reveal auto-posts all remaining counterparties", () => {
+    const s = makeAccrualGame(2);
+    const debtor = s.teamIds[0]!;
+    const creditor = s.teamIds[1]!;
+    givePropertyTo(s.gameId, creditor);
+    const prop = queries.propertiesByGame(s.gameId).find((p) => p.ownerTeamId === creditor)!;
+    const rentAmount = 50;
+    const expected = accounting.rentPaidCash(debtor, creditor, rentAmount);
+    setCurrentTeam(s.gameId, debtor, "resolving");
+    getDb().prepare("DELETE FROM pending_actions WHERE game_id = ?").run(s.gameId);
+    getDb()
+      .prepare(
+        `INSERT INTO pending_actions (id, game_id, team_id, kind, payload, expected_entries, status, attempts, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        s.gameId,
+        debtor,
+        "rent_due",
+        JSON.stringify({ propertyId: prop.id, rent: rentAmount, ownerTeamId: creditor, choices: ["cash"] }),
+        JSON.stringify(expected),
+        "awaiting_journal",
+        0,
+        new Date().toISOString(),
+      );
+
+    const creditorStart = balanceOf(creditor, "Cash");
+    revealAnswer(s.gameId);
+    // Both sides posted; no receiver pending remains.
+    expect(queries.pendingByGame(s.gameId)).toBeNull();
+    expect(queries.gameById(s.gameId)!.turnPhase).toBe("awaiting_end");
+    expect(balanceOf(creditor, "Cash")).toBe(creditorStart + rentAmount);
   });
 });

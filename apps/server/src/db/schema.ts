@@ -50,7 +50,12 @@ export function runMigrations(): void {
       purchase_price INTEGER NOT NULL,
       rent INTEGER NOT NULL,
       owner_team_id TEXT,
-      is_mortgaged INTEGER NOT NULL DEFAULT 0
+      is_mortgaged INTEGER NOT NULL DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'street',
+      color_group TEXT,
+      color TEXT,
+      house_cost INTEGER,
+      houses INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS accounts (
@@ -206,5 +211,19 @@ export function runMigrations(): void {
     db.exec(`ALTER TABLE year_snapshots ADD COLUMN cumulative_score INTEGER DEFAULT 0`);
   } catch {
     // Column already present.
+  }
+  // Classic board: property kind, color group, houses.
+  for (const stmt of [
+    `ALTER TABLE properties ADD COLUMN kind TEXT NOT NULL DEFAULT 'street'`,
+    `ALTER TABLE properties ADD COLUMN color_group TEXT`,
+    `ALTER TABLE properties ADD COLUMN color TEXT`,
+    `ALTER TABLE properties ADD COLUMN house_cost INTEGER`,
+    `ALTER TABLE properties ADD COLUMN houses INTEGER NOT NULL DEFAULT 0`,
+  ]) {
+    try {
+      db.exec(stmt);
+    } catch {
+      // Column already present.
+    }
   }
 }

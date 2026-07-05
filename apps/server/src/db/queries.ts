@@ -58,6 +58,11 @@ interface PropRow {
   rent: number;
   owner_team_id: string | null;
   is_mortgaged: number;
+  kind: string;
+  color_group: string | null;
+  color: string | null;
+  house_cost: number | null;
+  houses: number;
 }
 interface AccountRow {
   id: string;
@@ -199,6 +204,11 @@ export function rowToProperty(r: PropRow): Property {
     rent: r.rent,
     ownerTeamId: r.owner_team_id,
     isMortgaged: r.is_mortgaged === 1,
+    kind: (r.kind ?? "street") as Property["kind"],
+    colorGroup: r.color_group ?? undefined,
+    color: r.color ?? undefined,
+    houseCost: r.house_cost ?? undefined,
+    houses: r.houses ?? 0,
   };
 }
 
@@ -467,6 +477,9 @@ export const queries = {
       | { h: number }
       | undefined;
     return row?.h ?? 0;
+  },
+  incrementPropertyHouses(propertyId: string): void {
+    getDb().prepare("UPDATE properties SET houses = houses + 1 WHERE id = ?").run(propertyId);
   },
   upsertYearSnapshotWithScore(
     gameId: string,

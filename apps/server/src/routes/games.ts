@@ -2,8 +2,8 @@ import type { Request, Response, NextFunction } from "express";
 import { Router, type Router as RouterType } from "express";
 import { z } from "zod";
 import { networkInterfaces } from "node:os";
-import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn } from "../services/gameService.js";
-import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee } from "../services/turnService.js";
+import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn, addTeam, removeTeam } from "../services/gameService.js";
+import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee, buildHouse } from "../services/turnService.js";
 import { getGameState, ledgerView, statementsView } from "../services/stateService.js";
 import { startYearEnd, resolveYearEndStep } from "../services/yearEndService.js";
 import { AccountingError } from "../services/accountingService.js";
@@ -39,7 +39,7 @@ const createGameSchema = z.object({
   roomName: z.string().optional(),
   teacherPin: z.string().min(1),
   difficulty: z.enum(["cash", "accrual"]),
-  numberOfTeams: z.number().int().min(2).max(8),
+  numberOfTeams: z.number().int().min(2).max(4),
   propertyAllocationRatio: z.union([z.literal(0), z.literal(0.25), z.literal(0.5), z.literal(0.75)]),
   startingCash: z.number().int().min(0),
   startingLoanLimit: z.number().int().min(0),
@@ -232,6 +232,18 @@ gamesRouter.post("/:gameId/submit-journal-entry", async (req, res, next) => {
   }
 });
 
+gamesRouter.post("/:gameId/build-house", async (req, res, next) => {
+  try {
+    const input = z.object({ teamId: z.string(), propertyId: z.string() }).parse(req.body);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
+    await withGameLock(req.params.gameId, () => buildHouse(req.params.gameId, input.teamId, input.propertyId));
+    broadcast(req, req.params.gameId);
+    res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 gamesRouter.post("/:gameId/end-turn", async (req, res, next) => {
   try {
     requireEndTurnSession(req.header("Authorization"), req.params.gameId);
@@ -280,6 +292,29 @@ gamesRouter.post("/:gameId/reveal-answer", async (req, res, next) => {
     await withGameLock(req.params.gameId, () => revealAnswer(req.params.gameId));
     broadcast(req, req.params.gameId);
     res.json({ state: getGameState(req.params.gameId) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---- Team management (lobby-only add/remove) ----
+gamesRouter.post("/:gameId/teams", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const team = await withGameLock(req.params.gameId, () => addTeam(req.params.gameId));
+    broadcast(req, req.params.gameId);
+    res.status(201).json({ team });
+  } catch (e) {
+    next(e);
+  }
+});
+
+gamesRouter.delete("/:gameId/teams/:teamId", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    await withGameLock(req.params.gameId, () => removeTeam(req.params.gameId, req.params.teamId));
+    broadcast(req, req.params.gameId);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

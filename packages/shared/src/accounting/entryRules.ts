@@ -29,6 +29,17 @@ export function propertyPurchase(teamId: string, amount: number, propertyName: s
   };
 }
 
+export function buildingPurchase(teamId: string, amount: number, propertyName: string, levelLabel: string): ExpectedEntry {
+  return {
+    teamId,
+    description: desc(`Built a ${levelLabel} on ${propertyName} for cash.`),
+    lines: [
+      { accountName: "Buildings", debit: amount, credit: 0 },
+      { accountName: "Cash", debit: 0, credit: amount },
+    ],
+  };
+}
+
 // §9.2 Rent paid cash
 export function rentPaidCash(
   payerTeamId: string,

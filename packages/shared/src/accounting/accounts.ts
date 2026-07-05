@@ -4,6 +4,7 @@ import type { AccountDefinition, Difficulty } from "../types.js";
 export const CASH_BASIS_ACCOUNTS: readonly AccountDefinition[] = [
   { name: "Cash", type: "asset" },
   { name: "Property", type: "asset" },
+  { name: "Buildings", type: "asset" },
 
   { name: "Loan Payable", type: "liability" },
 

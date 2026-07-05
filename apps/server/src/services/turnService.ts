@@ -14,6 +14,7 @@ const {
   interestPaidCash,
   interestAddedToLoan,
   propertyPurchase,
+  buildingPurchase,
   rentPaidCash,
   rentPaidCredit,
   rentPaidCreditLine,
@@ -121,19 +122,21 @@ export function roll(gameId: string, teamId: string): { dice: [number, number]; 
   const spaces = queries.spacesByGame(gameId);
   const space = spaces.find((s) => s.index === newPosition)!;
 
-  // Phase 4: year-end is a multi-step per-team checklist; enqueue it instead
-  // of bumping the year inline. Checklist runs after the landing action.
-  const goToYearEnd = passedGo || space.type === "go";
-  // (The actual year-end pending action is appended below after dispatch.)
+  // Year-end triggers only when passing GO (single GO tile at index 0).
+  const goToYearEnd = passedGo;
 
-  dispatchLanding(game, team, space);
+  dispatchLanding(game, team, { ...space, index: space.index });
   if (goToYearEnd) {
     activateYearEnd(game.id, team.id, String(game.currentTurnNumber));
   }
   return { dice: [d1, d2], newPosition, space: space.name };
 }
 
-function dispatchLanding(game: Game, team: Team, space: { type: string; id: string; propertyId?: string; name: string }): void {
+function dispatchLanding(
+  game: Game,
+  team: Team,
+  space: { type: string; id: string; propertyId?: string; name: string; index: number },
+): void {
   const db = getDb();
   const turnId = String(game.currentTurnNumber);
   switch (space.type) {
@@ -146,6 +149,7 @@ function dispatchLanding(game: Game, team: Team, space: { type: string; id: stri
     }
     case "property": {
       const prop = queries.propertiesByGame(game.id).find((p) => p.id === space.propertyId)!;
+      const allProps = queries.propertiesByGame(game.id);
       if (!prop.ownerTeamId) {
         createPending(game.id, team.id, {
           kind: "buy_or_skip",
@@ -158,14 +162,23 @@ function dispatchLanding(game: Game, team: Team, space: { type: string; id: stri
         setAwaitingEnd(game.id);
       } else {
         const owner = queries.teamsByGame(game.id).find((t) => t.id === prop.ownerTeamId)!;
+        const rentAmount = gameData.effectiveRent(prop, gameData.countOwnedRailroads(allProps, owner.id));
         const choices = game.difficulty === "cash" ? ["cash"] : ["cash", "player_credit", "credit_line"];
         createPending(game.id, team.id, {
           kind: "rent_due",
-          payload: { propertyId: prop.id, name: prop.name, rent: prop.rent, ownerTeamId: owner.id, ownerName: owner.name, choices },
+          payload: {
+            propertyId: prop.id,
+            name: prop.name,
+            rent: rentAmount,
+            ownerTeamId: owner.id,
+            ownerName: owner.name,
+            choices,
+            houses: prop.houses,
+          },
           expectedEntries: [],
           status: "awaiting_choice",
         });
-        logEvent(game.id, turnId, "rent_due", { payer: team.id, owner: owner.id, rent: prop.rent });
+        logEvent(game.id, turnId, "rent_due", { payer: team.id, owner: owner.id, rent: rentAmount, houses: prop.houses });
       }
       break;
     }
@@ -197,17 +210,12 @@ function dispatchLanding(game: Game, team: Team, space: { type: string; id: stri
       logEvent(game.id, turnId, "draw_event_card", { teamId: team.id, cardId: card.id, title: card.title });
       break;
     }
-    case "repair":
-    case "charity":
-    case "road_closure":
     case "tax": {
-      const fee = gameData.SPACE_FEES[space.type] ?? 100;
-      const account =
-        space.type === "repair" ? "Repair Expense" : space.type === "charity" ? "Charity Expense" : space.type === "road_closure" ? "Road Closure Expense" : "Event Expense";
+      const fee = gameData.taxFeeForSpace(space.index);
       createPending(game.id, team.id, {
         kind: "space_fee",
-        payload: { space: space.type, amount: fee, account, title: space.name, cashShort: balanceOf(team.id, "Cash") < fee },
-        expectedEntries: [cashEventExpense(team.id, fee, account, space.name)],
+        payload: { space: space.type, amount: fee, account: "Event Expense", title: space.name, cashShort: balanceOf(team.id, "Cash") < fee },
+        expectedEntries: [cashEventExpense(team.id, fee, "Event Expense", space.name)],
         status: "awaiting_journal",
       });
       break;
@@ -468,6 +476,46 @@ export interface SubmitResult {
   errors: string[];
   attempts: number;
   balanceChanges?: BalanceChange[];
+  /** When the entry chains to a counterparty pending, the receiver's team id. */
+  chainedTo?: string;
+  chainedToName?: string;
+}
+
+function ownsFullColorGroup(properties: Property[], teamId: string, colorGroup: string): boolean {
+  const groupProps = properties.filter((p) => p.colorGroup === colorGroup && p.kind === "street");
+  if (groupProps.length === 0) return false;
+  return groupProps.every((p) => p.ownerTeamId === teamId && !p.isMortgaged);
+}
+
+/** Build a house or hotel on an owned street (full color group required). */
+export function buildHouse(gameId: string, teamId: string, propertyId: string): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.currentTeamId !== teamId) throw new GameError("NOT_YOUR_TURN", "It's not your turn");
+  if (openPending(gameId)) throw new GameError("PENDING_ACTION", "Resolve the pending action first");
+  if (queries.yearEndPendingByTeam(teamId)) {
+    throw new GameError("YEAR_END_OPEN", "Finish your year-end checklist first");
+  }
+  const prop = queries.propertiesByGame(gameId).find((p) => p.id === propertyId);
+  if (!prop) throw new GameError("NOT_FOUND", "Property not found");
+  if (prop.kind !== "street") throw new GameError("INVALID_STATE", "Can only build on streets");
+  if (prop.ownerTeamId !== teamId) throw new GameError("NOT_OWNER", "You do not own this property");
+  if (prop.houses >= 5) throw new GameError("INVALID_STATE", "Property already has a hotel");
+  if (!prop.colorGroup) throw new GameError("INVALID_STATE", "Property has no color group");
+  const allProps = queries.propertiesByGame(gameId);
+  if (!ownsFullColorGroup(allProps, teamId, prop.colorGroup)) {
+    throw new GameError("INCOMPLETE_GROUP", "Own the full color group before building");
+  }
+  const cost = prop.houseCost ?? 100;
+  const levelLabel = prop.houses === 4 ? "hotel" : "house";
+  setResolving(gameId);
+  createPending(gameId, teamId, {
+    kind: "build_house",
+    payload: { propertyId: prop.id, name: prop.name, cost, levelLabel, cashShort: balanceOf(teamId, "Cash") < cost },
+    expectedEntries: [buildingPurchase(teamId, cost, prop.name, levelLabel)],
+    status: "awaiting_journal",
+  });
 }
 
 export function submitJournalEntry(
@@ -516,16 +564,65 @@ export function submitJournalEntry(
     ],
   });
 
-  // Counterparty entries respect the room's journalEntryMode (PRD §17.1).
-  const mode = game.settings.journalEntryMode ?? "autoPostCounterparty";
-  if (mode !== "activeTeamOnly") {
-    for (const e of expectedEntries) {
-      if (e.teamId === teamId) continue;
-      postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
-    }
+  // Counterparty entries: instead of auto-posting, chain to the next
+  // receiver so they record their own journal entry (PRD §17.1 "both teams"
+  // semantics, now universal). The current pending is closed without
+  // advancing the turn; a new pending is opened for the receiver.
+  maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
+  if (pending.kind === "build_house") {
+    queries.incrementPropertyHouses((pending.payload as { propertyId: string }).propertyId);
   }
 
-  maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
+  const remainingReceivers = expectedEntries.filter((e) => e.teamId !== teamId);
+  if (remainingReceivers.length > 0) {
+    // Close the current pending without advancing to awaiting_end — the
+    // turn stays in "resolving" until every receiver has journaled.
+    getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE id = ?").run(pending.id);
+    const next = remainingReceivers[0]!;
+    const receiverTeam = queries.teamsByGame(gameId).find((t) => t.id === next.teamId);
+    const sourceLabel = pending.kind === "rent_due"
+      ? "rent receipt"
+      : pending.kind === "event_card"
+        ? "event-card transfer"
+        : pending.kind;
+    const priorPayload = pending.payload as { counterpartyOf?: string; counterpartyName?: string };
+    // Preserve the original counterparty (card drawer / rent payer) across
+    // multi-receiver chains so receiver N+1 still sees the true source.
+    const counterpartyOf = priorPayload.counterpartyOf ?? teamId;
+    const counterpartyName =
+      priorPayload.counterpartyName ?? queries.teamsByGame(gameId).find((t) => t.id === teamId)?.name ?? "Another team";
+    createPending(gameId, next.teamId, {
+      kind: "counterparty_entry",
+      payload: {
+        sourceKind: pending.kind,
+        sourceLabel,
+        counterpartyOf,
+        counterpartyName,
+        description: next.description,
+      },
+      expectedEntries: remainingReceivers,
+      status: "awaiting_journal",
+    });
+    logEvent(gameId, String(game.currentTurnNumber), "counterparty_pending", {
+      teamId: next.teamId,
+      sourceTeamId: teamId,
+      sourceKind: pending.kind,
+      description: next.description,
+    });
+    return {
+      correct: true,
+      feedback: result.feedback,
+      errors: [],
+      attempts: pending.attempts + 1,
+      balanceChanges: [
+        { accountName: input.debitAccount, before: beforeDebit, after: balanceOf(teamId, input.debitAccount) },
+        { accountName: input.creditAccount, before: beforeCredit, after: balanceOf(teamId, input.creditAccount) },
+      ],
+      chainedTo: next.teamId,
+      chainedToName: receiverTeam?.name,
+    };
+  }
+
   markPendingDone(gameId);
   logEvent(gameId, String(game.currentTurnNumber), "event_resolved", {
     teamId,
@@ -584,14 +681,16 @@ export function revealAnswer(gameId: string): void {
       ],
     });
   }
-  const mode = game.settings.journalEntryMode ?? "autoPostCounterparty";
-  if (mode !== "activeTeamOnly") {
-    for (const e of expectedEntries) {
-      if (e.teamId === teamId) continue;
-      postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
-    }
+  // Teacher reveal always auto-posts every remaining counterparty so the
+  // teacher can unblock the game without each receiver acting individually.
+  for (const e of expectedEntries) {
+    if (e.teamId === teamId) continue;
+    postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
   }
   maybeRecordDeferredForEventCard(gameId, teamId, pending, game.difficulty);
+  if (pending.kind === "build_house") {
+    queries.incrementPropertyHouses((pending.payload as { propertyId: string }).propertyId);
+  }
   markPendingDone(gameId);
   logEvent(gameId, null, "teacher_override", {
     action: "reveal_answer",

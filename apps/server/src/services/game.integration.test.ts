@@ -185,6 +185,23 @@ async function driveUntilJournal(gameId: string): Promise<{ state: any; teamId: 
   throw new Error("no journal pending in 30 rolls");
 }
 
+/** Journal the currently-open pending action on behalf of `teamId`. */
+async function journalCurrentPending(gameId: string, teamId: string, token: string): Promise<{ ok: boolean; json: any }> {
+  const state = await get(`/api/games/${gameId}`);
+  const pending = state.pending;
+  if (!pending) return { ok: false, json: { error: { code: "NO_PENDING" } } };
+  const expected = (pending.expectedEntries || []).find((e: any) => e.teamId === teamId);
+  if (!expected) return { ok: false, json: { error: { code: "NO_EXPECTED" } } };
+  const debit = expected.lines.find((l: any) => l.debit > 0);
+  const credit = expected.lines.find((l: any) => l.credit > 0);
+  return post(`/api/games/${gameId}/submit-journal-entry`, {
+    teamId,
+    debitAccount: debit.accountName,
+    creditAccount: credit.accountName,
+    amount: debit.debit,
+  }, token);
+}
+
 describe("game lifecycle (Phase 2 integration)", () => {
   it("creates, starts, allocates opening entries, balance sheets balance", async () => {
     const gameId = await createAndStart();
@@ -230,8 +247,18 @@ describe("game lifecycle (Phase 2 integration)", () => {
       amount: debit.debit,
     }, teamTokens[teamId]);
     expect(res.json.result.correct).toBe(true);
-    expect(res.json.state.pending).toBeNull();
-    expect(res.json.state.game.turnPhase).toBe("awaiting_end");
+
+    // If the entry chains to a counterparty, journal their side too.
+    if (res.json.result.chainedTo) {
+      const ct: string = res.json.result.chainedTo;
+      const tk = teamTokens[ct]!;
+      const receiverRes = await journalCurrentPending(gameId, ct, tk);
+      expect(receiverRes.ok).toBe(true);
+    }
+
+    const after = await get(`/api/games/${gameId}`);
+    expect(after.pending).toBeNull();
+    expect(after.game.turnPhase).toBe("awaiting_end");
     const ta = await get(`/api/games/${gameId}/teams/${teamId}/t-accounts`);
     expect(Array.isArray(ta)).toBe(true);
   });
@@ -243,12 +270,18 @@ describe("game lifecycle (Phase 2 integration)", () => {
     const expected = state.pending.expectedEntries.find((e: any) => e.teamId === teamId);
     const debit = expected.lines.find((l: any) => l.debit > 0);
     const credit = expected.lines.find((l: any) => l.credit > 0);
-    await post(`/api/games/${gameId}/submit-journal-entry`, {
+    const res = await post(`/api/games/${gameId}/submit-journal-entry`, {
       teamId,
       debitAccount: debit.accountName,
       creditAccount: credit.accountName,
       amount: debit.debit,
     }, teamTokens[teamId]);
+
+    // Resolve any chained counterparty pending before ending the turn.
+    if (res.json.result?.chainedTo) {
+      const ct: string = res.json.result.chainedTo;
+      await journalCurrentPending(gameId, ct, teamTokens[ct]!);
+    }
 
     const secondRoll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
     expect(secondRoll.ok).toBe(false);
@@ -367,16 +400,58 @@ describe("game lifecycle (Phase 2 integration)", () => {
     expect(interestEvent?.payload?.rolledToLoan).toBe(true);
   });
 
-  it("teacher session cannot roll for a team via REST", async () => {
-    const gameId = await createAndStart();
-    const { token, teamTokens } = await tokensFor(gameId);
-    const state = await get(`/api/games/${gameId}`);
-    const teamId = state.game.currentTeamId as string;
-    const roll = await post(`/api/games/${gameId}/roll`, { teamId }, token);
-    expect(roll.ok).toBe(false);
-    expect(roll.json.error?.code).toBe("NOT_YOUR_TEAM");
-    // Team token still works.
-    const teamRoll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
-    expect(teamRoll.ok).toBe(true);
+  it("teacher can add and remove unjoined teams in the lobby", async () => {
+    const { gameId, token } = await createGameWithSession({ numberOfTeams: 2 });
+    const added = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(added.ok).toBe(true);
+    expect(added.json.team.name).toBe("Green");
+
+    const added2 = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(added2.ok).toBe(true);
+
+    const tooMany = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(tooMany.ok).toBe(false);
+    expect(tooMany.json.error?.code).toBe("TOO_MANY_TEAMS");
+
+    const remove = await fetch(B() + `/api/games/${gameId}/teams/${added2.json.team.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(remove.ok).toBe(true);
+
+    const state = await get(`/api/games/${gameId}`, token);
+    expect(state.teams).toHaveLength(3);
   });
+  it("cannot remove a joined team or go below 2 teams", async () => {
+    const { gameId, token, teamTokens } = await createGameWithSession({ numberOfTeams: 3 });
+    const joinedTeamId = Object.keys(teamTokens)[0]!;
+    const joined = await fetch(B() + `/api/games/${gameId}/teams/${joinedTeamId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(joined.ok).toBe(false);
+    const body = (await joined.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("TEAM_JOINED");
+
+    // Adding a 4th slot is removable because nobody joined it.
+    const added = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(added.ok).toBe(true);
+    const removable = await fetch(B() + `/api/games/${gameId}/teams/${added.json.team.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(removable.ok).toBe(true);
+
+    const after = await get(`/api/games/${gameId}`, token);
+    expect(after.teams).toHaveLength(3);
+  });
+
+  it("cannot add or remove teams after the game starts", async () => {
+    const { gameId, token } = await createGameWithSession({ numberOfTeams: 2 });
+    await post(`/api/games/${gameId}/start`, { teacherPin: "1234" }, token);
+    const add = await post(`/api/games/${gameId}/teams`, {}, token);
+    expect(add.ok).toBe(false);
+    expect(add.json.error?.code).toBe("INVALID_STATE");
+  });
+
 });

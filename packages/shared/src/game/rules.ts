@@ -5,7 +5,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   propertyAllocationRatio: 0.5,
   startingCash: 1500,
   startingLoanLimit: 500,
-  boardPreset: "simple",
+  boardPreset: "classic",
   journalEntryMode: "autoPostCounterparty",
   allowStudentFullHint: false,
   showScores: true,

@@ -60,10 +60,24 @@ export function createGame(input: CreateGameInput): Game {
     insertSpace.run(s.id, id, s.index, s.name, s.type, s.propertyId ?? null, s.deckType ?? null);
   }
   const insertProp = db.prepare(
-    `INSERT INTO properties (id, game_id, board_space_id, name, purchase_price, rent, owner_team_id, is_mortgaged) VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO properties (id, game_id, board_space_id, name, purchase_price, rent, owner_team_id, is_mortgaged, kind, color_group, color, house_cost, houses) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const p of properties) {
-    insertProp.run(p.id, id, p.boardSpaceId, p.name, p.purchasePrice, p.rent, null, 0);
+    insertProp.run(
+      p.id,
+      id,
+      p.boardSpaceId,
+      p.name,
+      p.purchasePrice,
+      p.rent,
+      null,
+      0,
+      p.kind,
+      p.colorGroup ?? null,
+      p.color ?? null,
+      p.houseCost ?? null,
+      p.houses ?? 0,
+    );
   }
 
   // Seed teams (not yet "active" until start). Colors/names pre-assigned.
@@ -225,7 +239,52 @@ export class GameError extends Error {
   }
 }
 
-/** Phase 5: end the game — sets status to "ended" and logs a teacher override. */
+/** Max teams per game (matches the create-game Zod ceiling). */
+export const MAX_TEAMS = 4;
+/** Min teams that must remain in the lobby. */
+export const MIN_TEAMS = 2;
+
+/** Lobby-only: add one team slot up to MAX_TEAMS. */
+export function addTeam(gameId: string): Team {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Can only add teams in the lobby");
+  const teams = queries.teamsByGame(gameId);
+  if (teams.length >= MAX_TEAMS) {
+    throw new GameError("TOO_MANY_TEAMS", `Maximum ${MAX_TEAMS} teams`);
+  }
+  const nextIndex = teams.length; // 0-based join order for the new team
+  getDb()
+    .prepare(
+      `INSERT INTO teams (id, game_id, name, color, position, current_year, credit_limit, is_active, join_order) VALUES (?,?,?,?,?,?,?,?,?)`,
+    )
+    .run(uuid(), gameId, teamName(nextIndex), teamColor(nextIndex), 0, 1, game.settings.startingLoanLimit, 0, nextIndex);
+  logEvent(gameId, null, "teacher_override", { action: "add_team", teamName: teamName(nextIndex) });
+  return queries.teamsByGame(gameId)[nextIndex]!;
+}
+
+/** Lobby-only: remove a team slot. Rejects if joined or below MIN_TEAMS. */
+export function removeTeam(gameId: string, teamId: string): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Can only remove teams in the lobby");
+  const teams = queries.teamsByGame(gameId);
+  if (teams.length <= MIN_TEAMS) {
+    throw new GameError("TOO_FEW_TEAMS", `Need at least ${MIN_TEAMS} teams`);
+  }
+  const team = teams.find((t) => t.id === teamId);
+  if (!team) throw new GameError("NOT_FOUND", "Team not found");
+  // Block removal if any student has already joined that team.
+  const joinedForTeam = getDb()
+    .prepare("SELECT COUNT(*) AS c FROM sessions WHERE game_id = ? AND role = 'team' AND team_id = ?")
+    .get(gameId, teamId) as { c: number };
+  if (joinedForTeam.c > 0) {
+    throw new GameError("TEAM_JOINED", "Cannot remove a team that has students joined");
+  }
+  getDb().prepare("DELETE FROM teams WHERE id = ?").run(teamId);
+  logEvent(gameId, null, "teacher_override", { action: "remove_team", teamId });
+}
+
 export function endGame(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");

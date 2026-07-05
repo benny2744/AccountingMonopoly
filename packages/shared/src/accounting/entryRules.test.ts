@@ -14,6 +14,7 @@ import {
   prepaidRecognition,
   propertyAssignedAtSetup,
   propertyPurchase,
+  buildingPurchase,
   repairBillPayable,
   rentPaidCash,
   rentPaidCredit,
@@ -122,5 +123,11 @@ describe("entryRules — PRD §22", () => {
     const entries = multiTeamEventCollect(PAYER, others, 40, "festival");
     const collector = entries.find((e) => e.teamId === PAYER)!;
     expect(collector.lines[0]).toMatchObject({ accountName: "Cash", debit: 120 });
+  });
+
+  it("buildingPurchase: Dr Buildings / Cr Cash", () => {
+    const e = buildingPurchase(PAYER, 100, "Boardwalk", "house");
+    expect(e.lines[0]).toMatchObject({ accountName: "Buildings", debit: 100 });
+    expect(e.lines[1]).toMatchObject({ accountName: "Cash", credit: 100 });
   });
 });

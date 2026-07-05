@@ -15,7 +15,7 @@ export interface GameSettings {
   propertyAllocationRatio: PropertyAllocationRatio;
   startingCash: number;
   startingLoanLimit: number;
-  boardPreset: "simple";
+  boardPreset: "classic";
   journalEntryMode: JournalEntryMode;
   /** Phase 5: allow students to view the full-answer hint (level 4) themselves. Default false. */
   allowStudentFullHint?: boolean;
@@ -55,9 +55,6 @@ export type BoardSpaceType =
   | "property"
   | "event"
   | "bank"
-  | "repair"
-  | "charity"
-  | "road_closure"
   | "rest"
   | "tax";
 
@@ -70,6 +67,8 @@ export interface BoardSpace {
   deckType?: "cash" | "accrual";
 }
 
+export type PropertyKind = "street" | "railroad";
+
 export interface Property {
   id: string;
   gameId: string;
@@ -79,6 +78,13 @@ export interface Property {
   rent: number;
   ownerTeamId: string | null;
   isMortgaged: boolean;
+  kind: PropertyKind;
+  colorGroup?: string;
+  /** Display color for board UI (hex). */
+  color?: string;
+  houseCost?: number;
+  /** 0–4 houses; 5 represents a hotel. */
+  houses: number;
 }
 
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -131,6 +137,7 @@ export type GameEventType =
   | "buy_property"
   | "draw_event_card"
   | "event_resolved"
+  | "counterparty_pending"
   | "loan_taken"
   | "game_started"
   | "interest_charged"
