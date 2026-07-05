@@ -126,6 +126,18 @@ export function runMigrations(): void {
       cards TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      team_id TEXT,
+      display_name TEXT,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_game ON sessions(game_id);
+
     -- Indexes for hot per-request queries: event seq lookup, account resolution,
     -- team ledger reads.
     CREATE INDEX IF NOT EXISTS idx_game_events_game_seq ON game_events(game_id, seq);

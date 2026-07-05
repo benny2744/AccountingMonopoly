@@ -9,10 +9,10 @@ Depends on: Phase 2 playable game (including the `turnPhase` state machine, teac
 Phase 2 already ships:
 
 - `turnPhase` on the game row: `"awaiting_roll" | "resolving" | "awaiting_end"` — enforced in `roll` / `endTurn` / `markPendingDone` (`apps/server/src/services/turnService.ts`).
-- Client `BottomBar` keys off `game.turnPhase` (`apps/client/src/routes/GamePage.tsx`).
+- Client `BottomBar` keys off `game.turnPhase` (`apps/client/src/routes/TeamDashboard.tsx`).
 - Teacher PIN verified via `sha256` at `startGame` (`apps/server/src/services/gameService.ts`).
 - Persistence via `node:sqlite` + hand-written SQL schema (`apps/server/src/db/schema.ts`), not Drizzle/better-sqlite3.
-- Routes use `/game/:gameId` (UUID), not `/game/:roomCode`; room codes are 5 chars (`apps/server/src/util/ids.ts`).
+- Routes use `/game/:roomCode`, `/teacher/:roomCode`, `/display/:roomCode` with room lookup at `GET /api/games/by-code/:roomCode`; room codes are 5 chars (`apps/server/src/util/ids.ts`).
 
 Phase 3 builds on this — do not re-implement the turn loop; wire multiplayer and role screens around it.
 
@@ -93,3 +93,13 @@ Split the Phase 2 single screen into three routes sharing the Board/Sidebar/Log 
 ## Acceptance (PRD §26.3)
 
 - Multiple browsers stay synchronized; only the current team can roll; teacher can pause/resume; game state persists in SQLite across a server restart (reopen DB → games resume from persisted state).
+
+## 8. Deferred to Phase 4/5
+
+The following items are intentionally out of scope for Phase 3 acceptance; track them in later phases rather than blocking multiplayer ship:
+
+- **Teacher override panel** (PRD §24): adjust cash via manual journal entry, transfer property ownership, reverse latest transaction, mark entry correct — each as a dedicated override action with `teacher_override` GameEvent audit trail.
+- **Granular socket events** (`game:turn_changed`, `game:journal_entry_posted`, etc.): full `game:state_updated` broadcast is sufficient for classroom scale; split events can land in Phase 5 polish if needed.
+- **Read-endpoint authorization** (PRD §16.2): team-scoped views on ledger/T-accounts/statements REST routes — currently open to any caller with the game UUID; tighten when classroom hardening is prioritized.
+- **Session TTL / cleanup**: expired session pruning and stale-token garbage collection.
+- **Stuck-team indicator + pending-attempts monitor** (PRD §28.2): amber highlight when a pending action is older than N minutes; teacher dashboard monitor for journal attempts before reveal.

@@ -62,9 +62,12 @@ Always run `pnpm build && pnpm test` before declaring a task done.
 | Shared types | `packages/shared/src/types.ts` |
 | Turn logic, dice, landing resolution | `apps/server/src/services/turnService.ts` |
 | Room/team lifecycle, orchestration | `apps/server/src/services/gameService.ts` |
+| Sessions, join auth | `apps/server/src/services/sessionsService.ts` |
+| Socket.IO + per-game lock | `apps/server/src/socket.ts`, `apps/server/src/services/gameLock.ts` |
 | Bridge game events to accounting | `apps/server/src/services/accountingService.ts` |
 | REST endpoints | `apps/server/src/routes/games.ts` |
 | DB schema | `apps/server/src/db/schema.ts` |
+| Client store + socket connect | `apps/client/src/store.ts`, `apps/client/src/hooks/useRoomConnection.ts` |
 | Client screens | `apps/client/src/routes/` and `apps/client/src/components/` |
 
 ## Things to avoid

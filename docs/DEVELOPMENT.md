@@ -7,8 +7,8 @@ How to set up and work on Accounting Monopoly locally.
 - **Node.js 22+** — check with `node -v`.
 - **pnpm 9+** — enable with `corepack enable` if you have Node, or
   `npm install -g pnpm`.
-- A UNIX-like shell (macOS/Linux, or WSL on Windows). SQLite is bundled via
-  `better-sqlite3`/node-sqlite; no separate DB server required.
+- A UNIX-like shell (macOS/Linux, or WSL on Windows). SQLite is provided via
+  Node's built-in `node:sqlite`; no separate DB server required.
 
 ## First-time setup
 
@@ -48,6 +48,16 @@ pnpm --filter @amono/client dev
 
 Open <http://localhost:5173>. The client talks to the server through the Vite
 proxy, so room creation, rolls, and Socket.IO events all work end-to-end.
+
+### Classroom flow (dev)
+
+1. Teacher: `/create` → lobby at `/lobby/:roomCode`.
+2. Students: `/join` or `/join/:code` → pick a team → `/game/:roomCode`.
+3. Teacher starts when at least two teams have joined (or uses "Start anyway").
+4. Optional projector display: `/display/:roomCode`.
+
+Session tokens are stored in `localStorage` (`amono.sessionToken`) and sent on
+REST (`Authorization: Bearer …`) and Socket.IO handshake `auth.token`.
 
 ### Why two processes?
 
@@ -103,8 +113,8 @@ type-check / reload.
 - The accounting engine has the densest coverage, including the two PRD §32
   acceptance scenarios (`scenarioA.test.ts`, `scenarioB.test.ts`).
 - Server integration tests live in
-  `apps/server/src/services/game.integration.test.ts` and exercise the full
-  create → roll → resolve → journal entry → statement flow.
+  `apps/server/src/services/game.integration.test.ts` (REST) and
+  `apps/server/src/services/socket.integration.test.ts` (Socket.IO + sessions).
 - Add a test whenever you touch accounting logic or a game rule. Match the
   existing naming pattern.
 

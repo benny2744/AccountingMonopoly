@@ -399,10 +399,13 @@ export function submitJournalEntry(
     ],
   });
 
-  // Auto-post counterparty entries (PRD §17.1 default).
-  for (const e of expectedEntries) {
-    if (e.teamId === teamId) continue;
-    postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
+  // Counterparty entries respect the room's journalEntryMode (PRD §17.1).
+  const mode = game.settings.journalEntryMode ?? "autoPostCounterparty";
+  if (mode !== "activeTeamOnly") {
+    for (const e of expectedEntries) {
+      if (e.teamId === teamId) continue;
+      postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
+    }
   }
 
   markPendingDone(gameId);
@@ -414,9 +417,58 @@ export function submitJournalEntry(
   return { correct: true, feedback: result.feedback, errors: [], attempts: pending.attempts + 1 };
 }
 
+/**
+ * Teacher reveal: auto-post the correct entry on behalf of the active team
+ * (PRD §17.3, §24). Marks the entry as not student-submitted with the
+ * "revealed" outcome so Phase 5 scoring can apply the no-bonus rule.
+ */
+export function revealAnswer(gameId: string): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active" && game.status !== "paused") {
+    throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  }
+  const pending = queries.pendingByGame(gameId);
+  if (!pending) throw new GameError("NO_PENDING", "No pending action to reveal");
+  if (pending.status !== "awaiting_journal") throw new GameError("WRONG_STATE", "Not awaiting a journal entry");
+  const teamId = pending.teamId;
+  const team = queries.teamsByGame(gameId).find((t) => t.id === teamId)!;
+  const expectedEntries = pending.expectedEntries as ExpectedEntry[];
+  const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
+  if (studentExpected.lines.length > 0) {
+    const debit = studentExpected.lines.find((l) => l.debit > 0)!;
+    const credit = studentExpected.lines.find((l) => l.credit > 0)!;
+    postEntry({
+      gameId,
+      teamId,
+      turnId: String(game.currentTurnNumber),
+      description: `${studentExpected.description} (revealed by teacher)`,
+      sourceEventId: `reveal-${pending.id}`,
+      year: team.currentYear,
+      isStudentSubmitted: false,
+      isCorrect: true,
+      attemptOutcome: "revealed",
+      lines: [
+        { accountName: debit.accountName, debit: debit.debit, credit: 0 },
+        { accountName: credit.accountName, debit: 0, credit: credit.credit },
+      ],
+    });
+  }
+  const mode = game.settings.journalEntryMode ?? "autoPostCounterparty";
+  if (mode !== "activeTeamOnly") {
+    for (const e of expectedEntries) {
+      if (e.teamId === teamId) continue;
+      postExpectedAsSystem(gameId, e.teamId, String(game.currentTurnNumber), e, team.currentYear);
+    }
+  }
+  markPendingDone(gameId);
+  logEvent(gameId, null, "teacher_override", { action: "reveal_answer", teamId, description: studentExpected.description });
+}
+
 export function endTurn(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
   if (game.turnPhase === "awaiting_roll") {
     throw new GameError("INVALID_STATE", "Roll the dice before ending your turn");
   }

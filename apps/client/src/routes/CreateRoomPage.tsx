@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api.js";
+import { api, saveSession } from "../api.js";
 
 const RATIO_OPTIONS = [
   { label: "0%", value: 0 },
@@ -24,7 +24,7 @@ export default function CreateRoomPage() {
     setCreating(true);
     setError(null);
     try {
-      const { game } = await api.createGame({
+      const { game, sessionToken } = await api.createGame({
         teacherPin,
         difficulty,
         numberOfTeams,
@@ -32,9 +32,8 @@ export default function CreateRoomPage() {
         startingCash,
         startingLoanLimit,
       });
-      // Auto-start so the teacher can play hot-seat immediately (Phase 2).
-      await api.startGame(game.id, teacherPin);
-      navigate(`/game/${game.id}`);
+      saveSession(sessionToken);
+      navigate(`/lobby/${game.roomCode}`);
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);
@@ -96,7 +95,7 @@ export default function CreateRoomPage() {
             disabled={creating}
             className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
           >
-            {creating ? "Creating…" : "Create & Start Game"}
+            {creating ? "Creating…" : "Create Room"}
           </button>
         </div>
       </div>

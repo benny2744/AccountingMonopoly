@@ -24,76 +24,111 @@ afterAll(async () => {
   closeDb();
 });
 
-beforeEach(() => {
-  for (const t of [
-    "journal_entry_lines",
-    "journal_entries",
-    "pending_actions",
-    "credit_balances",
-    "game_events",
-    "accounts",
-    "properties",
-    "board_spaces",
-    "teams",
-    "deck_order",
-    "games",
-  ]) {
-    getDb().exec(`DELETE FROM ${t}`);
-  }
-});
+  beforeEach(() => {
+    for (const t of [
+      "journal_entry_lines",
+      "journal_entries",
+      "pending_actions",
+      "credit_balances",
+      "game_events",
+      "sessions",
+      "accounts",
+      "properties",
+      "board_spaces",
+      "teams",
+      "deck_order",
+      "games",
+    ]) {
+      getDb().exec(`DELETE FROM ${t}`);
+    }
+  });
 
 const B = () => `http://127.0.0.1:${port}`;
-async function get(path: string): Promise<any> {
-  const r = await fetch(B() + path);
+async function get(path: string, token?: string): Promise<any> {
+  const r = await fetch(B() + path, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
   return r.json();
 }
-async function post(path: string, body: any): Promise<{ ok: boolean; status: number; json: any }> {
+async function post(path: string, body: any, token?: string): Promise<{ ok: boolean; status: number; json: any }> {
   const r = await fetch(B() + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   const json = await r.json();
   return { ok: r.ok, status: r.status, json };
 }
 
-async function createGameWithOptions(opts: {
+/** Create a game and return a teacher session token for authenticated calls. */
+async function createGameWithSession(opts: {
   propertyAllocationRatio?: 0 | 0.25 | 0.5 | 0.75;
   numberOfTeams?: number;
-} = {}): Promise<string> {
+  difficulty?: "cash" | "accrual";
+} = {}): Promise<{ gameId: string; token: string; teamTokens: Record<string, string> }> {
   const { json } = await post("/api/games", {
     teacherPin: "1234",
-    difficulty: "cash",
+    difficulty: opts.difficulty ?? "cash",
     numberOfTeams: opts.numberOfTeams ?? 3,
     propertyAllocationRatio: opts.propertyAllocationRatio ?? 0.25,
     startingCash: 1500,
     startingLoanLimit: 500,
   });
-  const { json: startJson } = await post(`/api/games/${json.game.id}/start`, { teacherPin: "1234" });
-  return startJson.game.id;
+  const gameId = json.game.id;
+  const teacherToken = json.sessionToken;
+  // Pre-issue a session per team so action calls can authenticate as that team.
+  const state = await get(`/api/games/${gameId}`);
+  const teamTokens: Record<string, string> = {};
+  for (const tv of state.teams) {
+    const j = await post(`/api/games/${gameId}/join`, { teamId: tv.team.id });
+    teamTokens[tv.team.id] = j.json.sessionToken;
+  }
+  return { gameId, token: teacherToken, teamTokens };
+}
+
+async function createGameWithOptions(opts: {
+  propertyAllocationRatio?: 0 | 0.25 | 0.5 | 0.75;
+  numberOfTeams?: number;
+} = {}): Promise<string> {
+  const { gameId, token } = await createGameWithSession(opts);
+  await post(`/api/games/${gameId}/start`, { teacherPin: "1234" }, token);
+  return gameId;
 }
 
 async function createAndStart(): Promise<string> {
   return createGameWithOptions();
 }
 
+async function tokensFor(gameId: string): Promise<{ token: string; teamTokens: Record<string, string> }> {
+  const state = await get(`/api/games/${gameId}`);
+  const teacherJoin = await post(`/api/games/by-code/${state.game.roomCode}/teacher-join`, { teacherPin: "1234" });
+  const teamTokens: Record<string, string> = {};
+  for (const tv of state.teams) {
+    const j = await post(`/api/games/${gameId}/join`, { teamId: tv.team.id });
+    teamTokens[tv.team.id] = j.json.sessionToken;
+  }
+  return { token: teacherJoin.json.sessionToken, teamTokens };
+}
+
 /** Advance the active team until buy_or_skip or throw after max steps. */
-async function rollUntilBuyOrSkip(gameId: string, maxSteps = 80): Promise<{ teamId: string; pending: any }> {
+async function rollUntilBuyOrSkip(gameId: string, maxSteps = 80): Promise<{ teamId: string; pending: any; teamTokens: Record<string, string> }> {
+  const { token, teamTokens } = await tokensFor(gameId);
   for (let i = 0; i < maxSteps; i++) {
     const s = await get(`/api/games/${gameId}`);
     const teamId = s.game.currentTeamId;
     const pending = s.pending;
 
     if (pending?.kind === "buy_or_skip") {
-      return { teamId, pending };
+      return { teamId, pending, teamTokens };
     }
 
     if (pending?.status === "awaiting_choice") {
       const choice = pending.kind === "rent_due" ? "cash" : "skip";
       if (pending.kind === "bank_stop") {
-        await post(`/api/games/${gameId}/resolve-event`, { teamId: pending.teamId, choice: "pass" });
+        await post(`/api/games/${gameId}/resolve-event`, { teamId: pending.teamId, choice: "pass" }, teamTokens[pending.teamId]);
       } else {
-        await post(`/api/games/${gameId}/resolve-event`, { teamId: pending.teamId, choice });
+        await post(`/api/games/${gameId}/resolve-event`, { teamId: pending.teamId, choice }, teamTokens[pending.teamId]);
       }
       continue;
     }
@@ -107,43 +142,44 @@ async function rollUntilBuyOrSkip(gameId: string, maxSteps = 80): Promise<{ team
         debitAccount: debit.accountName,
         creditAccount: credit.accountName,
         amount: debit.debit,
-      });
+      }, teamTokens[pending.teamId]);
       continue;
     }
 
     if (s.game.turnPhase === "awaiting_end") {
-      await post(`/api/games/${gameId}/end-turn`, {});
+      await post(`/api/games/${gameId}/end-turn`, {}, token);
       continue;
     }
 
     if (s.game.turnPhase === "awaiting_roll") {
-      await post(`/api/games/${gameId}/roll`, { teamId });
+      await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
     }
   }
   throw new Error("did not land on unowned property");
 }
 
-async function driveUntilJournal(gameId: string): Promise<{ state: any; teamId: string }> {
+async function driveUntilJournal(gameId: string): Promise<{ state: any; teamId: string; teamTokens: Record<string, string>; token: string }> {
+  const { token, teamTokens } = await tokensFor(gameId);
   for (let i = 0; i < 30; i++) {
     const s = await get(`/api/games/${gameId}`);
     const tid = s.game.currentTeamId;
-    const roll = await post(`/api/games/${gameId}/roll`, { teamId: tid });
+    const roll = await post(`/api/games/${gameId}/roll`, { teamId: tid }, teamTokens[tid]);
     const p = roll.json.state?.pending;
-    if (p?.status === "awaiting_journal") return { state: roll.json.state, teamId: tid };
+    if (p?.status === "awaiting_journal") return { state: roll.json.state, teamId: tid, teamTokens, token };
     if (p?.status === "awaiting_choice") {
       let choice = "pass";
       if (p.kind === "buy_or_skip") choice = "skip";
       if (p.kind === "rent_due") choice = "cash";
-      const r = await post(`/api/games/${gameId}/resolve-event`, { teamId: p.teamId, choice });
+      const r = await post(`/api/games/${gameId}/resolve-event`, { teamId: p.teamId, choice }, teamTokens[p.teamId]);
       if (r.json.state?.pending?.status === "awaiting_journal") {
-        return { state: r.json.state, teamId: p.teamId };
+        return { state: r.json.state, teamId: p.teamId, teamTokens, token };
       }
       if (r.json.state?.turnPhase === "awaiting_end" || r.json.state?.game?.turnPhase === "awaiting_end") {
-        await post(`/api/games/${gameId}/end-turn`, {});
+        await post(`/api/games/${gameId}/end-turn`, {}, token);
       }
     }
     if (roll.json.state?.game?.turnPhase === "awaiting_end") {
-      await post(`/api/games/${gameId}/end-turn`, {});
+      await post(`/api/games/${gameId}/end-turn`, {}, token);
     }
   }
   throw new Error("no journal pending in 30 rolls");
@@ -165,6 +201,8 @@ describe("game lifecycle (Phase 2 integration)", () => {
   });
 
   it("rejects incorrect teacher PIN on start", async () => {
+    const { gameId, token } = await createGameWithSession({ numberOfTeams: 2, propertyAllocationRatio: 0 });
+    // Use a separate game created without a session to test PIN rejection.
     const { json } = await post("/api/games", {
       teacherPin: "1234",
       difficulty: "cash",
@@ -173,14 +211,15 @@ describe("game lifecycle (Phase 2 integration)", () => {
       startingCash: 1500,
       startingLoanLimit: 500,
     });
-    const res = await post(`/api/games/${json.game.id}/start`, { teacherPin: "wrong" });
+    void gameId; void token;
+    const res = await post(`/api/games/${json.game.id}/start`, { teacherPin: "wrong" }, json.sessionToken);
     expect(res.ok).toBe(false);
     expect(res.json.error.code).toBe("INVALID_PIN");
   });
 
   it("drives a full turn with a journal entry and verifies posting", async () => {
     const gameId = await createAndStart();
-    const { state, teamId } = await driveUntilJournal(gameId);
+    const { state, teamId, teamTokens } = await driveUntilJournal(gameId);
     const expected = (state.pending.expectedEntries || []).find((e: any) => e.teamId === teamId);
     const debit = expected.lines.find((l: any) => l.debit > 0);
     const credit = expected.lines.find((l: any) => l.credit > 0);
@@ -189,7 +228,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
       debitAccount: debit.accountName,
       creditAccount: credit.accountName,
       amount: debit.debit,
-    });
+    }, teamTokens[teamId]);
     expect(res.json.result.correct).toBe(true);
     expect(res.json.state.pending).toBeNull();
     expect(res.json.state.game.turnPhase).toBe("awaiting_end");
@@ -199,7 +238,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
 
   it("blocks a second roll until end turn, then advances to the next team", async () => {
     const gameId = await createAndStart();
-    const { teamId } = await driveUntilJournal(gameId);
+    const { teamId, teamTokens, token } = await driveUntilJournal(gameId);
     const state = await get(`/api/games/${gameId}`);
     const expected = state.pending.expectedEntries.find((e: any) => e.teamId === teamId);
     const debit = expected.lines.find((l: any) => l.debit > 0);
@@ -209,46 +248,48 @@ describe("game lifecycle (Phase 2 integration)", () => {
       debitAccount: debit.accountName,
       creditAccount: credit.accountName,
       amount: debit.debit,
-    });
+    }, teamTokens[teamId]);
 
-    const secondRoll = await post(`/api/games/${gameId}/roll`, { teamId });
+    const secondRoll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
     expect(secondRoll.ok).toBe(false);
     expect(secondRoll.json.error.code).toBe("INVALID_STATE");
 
-    const end = await post(`/api/games/${gameId}/end-turn`, {});
+    const end = await post(`/api/games/${gameId}/end-turn`, {}, token);
     expect(end.json.state.game.turnPhase).toBe("awaiting_roll");
     const nextTeamId = end.json.state.game.currentTeamId;
     expect(nextTeamId).not.toBe(teamId);
 
-    const nextRoll = await post(`/api/games/${gameId}/roll`, { teamId: nextTeamId });
+    const nextRoll = await post(`/api/games/${gameId}/roll`, { teamId: nextTeamId }, teamTokens[nextTeamId]);
     expect(nextRoll.ok).toBe(true);
   });
 
   it("rejects a wrong journal entry with the right error codes", async () => {
     const gameId = await createAndStart();
-    const { teamId } = await driveUntilJournal(gameId);
+    const { teamId, teamTokens } = await driveUntilJournal(gameId);
     const res = await post(`/api/games/${gameId}/submit-journal-entry`, {
       teamId,
       debitAccount: "Cash",
       creditAccount: "Owner Capital",
       amount: 1,
-    });
+    }, teamTokens[teamId]);
     expect(res.json.result.correct).toBe(false);
     expect(res.json.result.errors.length).toBeGreaterThan(0);
   });
 
   it("prevents out-of-turn rolls", async () => {
     const gameId = await createAndStart();
+    const { token: _t, teamTokens } = await tokensFor(gameId);
+    void _t;
     const state = await get(`/api/games/${gameId}`);
     const wrongTeam = state.teams.find((t: any) => t.team.id !== state.game.currentTeamId)!.team.id;
-    const res = await post(`/api/games/${gameId}/roll`, { teamId: wrongTeam });
+    const res = await post(`/api/games/${gameId}/roll`, { teamId: wrongTeam }, teamTokens[wrongTeam]);
     expect(res.ok).toBe(false);
     expect(res.json.error.code).toBe("NOT_YOUR_TURN");
   });
 
   it("rejects buying a property with insufficient cash", async () => {
     const gameId = await createGameWithOptions({ propertyAllocationRatio: 0 });
-    const { teamId, pending } = await rollUntilBuyOrSkip(gameId);
+    const { teamId, pending, teamTokens } = await rollUntilBuyOrSkip(gameId);
     const price = (pending.payload as { price: number }).price;
 
     const { postEntry } = await import("./accountingService.js");
@@ -271,13 +312,14 @@ describe("game lifecycle (Phase 2 integration)", () => {
     const buy = await post(`/api/games/${gameId}/resolve-event`, {
       teamId,
       choice: "buy",
-    });
+    }, teamTokens[teamId]);
     expect(buy.ok).toBe(false);
     expect(buy.json.error.code).toBe("INSUFFICIENT_CASH");
   });
 
   it("bank loan + interest: a team with a loan is charged interest on its next roll", async () => {
     const gameId = await createAndStart();
+    const { teamTokens } = await tokensFor(gameId);
     const state = await get(`/api/games/${gameId}`);
     const currentTeam = state.game.currentTeamId;
 
@@ -286,7 +328,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
     const teamRow = state.teams.find((t: any) => t.team.id === currentTeam)!;
     postExpectedAsSystem(gameId, currentTeam, "setup", accounting.loanTaken(currentTeam, 300), teamRow.team.currentYear);
 
-    const roll = await post(`/api/games/${gameId}/roll`, { teamId: currentTeam });
+    const roll = await post(`/api/games/${gameId}/roll`, { teamId: currentTeam }, teamTokens[currentTeam]);
     const allEvents = roll.json.state?.events ?? [];
     const hasInterest = allEvents.some((e: any) => e.type === "interest_charged");
     expect(hasInterest).toBe(true);
@@ -294,6 +336,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
 
   it("rolls interest to loan when cash is insufficient", async () => {
     const gameId = await createAndStart();
+    const { teamTokens } = await tokensFor(gameId);
     const state = await get(`/api/games/${gameId}`);
     const teamId = state.game.currentTeamId;
     const teamRow = state.teams.find((t: any) => t.team.id === teamId)!;
@@ -318,9 +361,22 @@ describe("game lifecycle (Phase 2 integration)", () => {
       ],
     });
 
-    const roll = await post(`/api/games/${gameId}/roll`, { teamId });
+    const roll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
     const events = roll.json.state?.events ?? [];
     const interestEvent = events.find((e: any) => e.type === "interest_charged");
     expect(interestEvent?.payload?.rolledToLoan).toBe(true);
+  });
+
+  it("teacher session cannot roll for a team via REST", async () => {
+    const gameId = await createAndStart();
+    const { token, teamTokens } = await tokensFor(gameId);
+    const state = await get(`/api/games/${gameId}`);
+    const teamId = state.game.currentTeamId as string;
+    const roll = await post(`/api/games/${gameId}/roll`, { teamId }, token);
+    expect(roll.ok).toBe(false);
+    expect(roll.json.error?.code).toBe("NOT_YOUR_TEAM");
+    // Team token still works.
+    const teamRoll = await post(`/api/games/${gameId}/roll`, { teamId }, teamTokens[teamId]);
+    expect(teamRoll.ok).toBe(true);
   });
 });

@@ -2,14 +2,22 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { TeamView, StatementsView } from "../api.js";
 
-export default function StatementsView({ gameId, teamView }: { gameId: string; teamView: TeamView }) {
+export default function StatementsView({
+  gameId,
+  teamView,
+  refreshKey,
+}: {
+  gameId: string;
+  teamView: TeamView;
+  refreshKey?: string;
+}) {
   const [data, setData] = useState<StatementsView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setData(null);
     api.statements(gameId, teamView.team.id).then(setData).catch((e) => setError((e as Error).message));
-  }, [gameId, teamView.team.id]);
+  }, [gameId, teamView.team.id, refreshKey]);
 
   if (error) return <div className="text-red-600 p-4">{error}</div>;
   if (!data) return <div className="p-4">Loading statements…</div>;

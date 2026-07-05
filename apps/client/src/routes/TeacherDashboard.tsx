@@ -1,0 +1,191 @@
+import { useState } from "react";
+import { useParams } from "react-router-dom";
+import { api } from "../api.js";
+import { useGameStore } from "../store.js";
+import { useRoomConnection } from "../hooks/useRoomConnection.js";
+import Board from "../components/Board.js";
+import Sidebar from "../components/Sidebar.js";
+import TAccountsView from "../components/TAccountsView.js";
+import StatementsView from "../components/StatementsView.js";
+import type { TeamView } from "../api.js";
+
+type Tab = "overview" | "taccounts" | "statements";
+
+export default function TeacherDashboard() {
+  const { roomCode = "" } = useParams<{ roomCode: string }>();
+  const { loading, error } = useRoomConnection(roomCode, "teacher");
+  const { state } = useGameStore();
+  const setSocketError = useGameStore((s) => s.setSocketError);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
+  if (loading || !state) return <div className="p-8">Connecting to room {roomCode}…</div>;
+
+  const currentTeam = state.teams.find((t) => t.team.id === state.game.currentTeamId) ?? null;
+  const selectedTeam: TeamView | null =
+    state.teams.find((t) => t.team.id === selectedTeamId) ?? currentTeam ?? state.teams[0]!;
+
+  async function ctl(fn: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      await fn();
+      // State arrives via socket broadcast.
+    } catch (e) {
+      setSocketError({ code: "ERROR", message: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen p-4">
+      <header className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <h1 className="text-xl font-bold">Teacher Dashboard</h1>
+          <div className="text-sm text-slate-500">
+            Room <span className="font-mono font-semibold">{state.game.roomCode}</span> ·{" "}
+            {state.game.status} · Turn {state.game.currentTurnNumber}
+            {currentTeam && <> · {currentTeam.team.name}'s turn</>}
+          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => ctl(() => (state.game.status === "paused" ? api.resume(state.game.id) : api.pause(state.game.id)))}
+            disabled={busy}
+            className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
+          >
+            {state.game.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+          </button>
+          <button
+            onClick={() => ctl(() => api.forceNextTurn(state.game.id))}
+            disabled={busy}
+            className="bg-slate-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
+          >
+            ⏭ Force Next Turn
+          </button>
+          <button
+            onClick={() => ctl(() => api.revealAnswer(state.game.id))}
+            disabled={busy || !state.pending || state.pending.status !== "awaiting_journal"}
+            className="bg-rose-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
+            title="Post the correct entry for the active team"
+          >
+            💡 Reveal Answer
+          </button>
+        </div>
+      </header>
+
+      {state.game.status === "paused" && (
+        <div className="mb-4 bg-amber-100 border border-amber-300 text-amber-900 rounded-lg p-3 font-medium">
+          Game is paused. Mutating actions are blocked.
+        </div>
+      )}
+
+      <div className="flex gap-2 mb-4">
+        {(["overview", "taccounts", "statements"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              tab === t ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
+            }`}
+          >
+            {t === "overview" ? "Overview" : t === "taccounts" ? "T-Accounts" : "Statements"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
+          <div className="space-y-4">
+            <Board state={state} />
+            <TeamTable state={state} />
+          </div>
+          <Sidebar state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelectTeam={setSelectedTeamId} />
+        </div>
+      )}
+      {tab === "taccounts" && selectedTeam && (
+        <TAccountsView
+          gameId={state.game.id}
+          teamView={selectedTeam}
+          refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
+        />
+      )}
+      {tab === "statements" && selectedTeam && (
+        <StatementsView
+          gameId={state.game.id}
+          teamView={selectedTeam}
+          refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
+        />
+      )}
+      {(tab === "taccounts" || tab === "statements") && (
+        <TeamPicker state={state} selectedTeamId={selectedTeam?.team.id ?? null} onSelect={setSelectedTeamId} />
+      )}
+    </div>
+  );
+}
+
+function TeamTable({ state }: { state: import("../api.js").GameState }) {
+  return (
+    <div className="bg-white rounded-2xl shadow p-4">
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Teams</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-slate-500 border-b">
+            <th className="py-2">Team</th>
+            <th className="py-2 text-right">Cash</th>
+            <th className="py-2 text-right">Loan</th>
+            <th className="py-2 text-right">Props</th>
+            <th className="py-2 text-right">Position</th>
+          </tr>
+        </thead>
+        <tbody>
+          {state.teams.map((tv) => {
+            const isCurrent = state.game.currentTeamId === tv.team.id;
+            return (
+              <tr key={tv.team.id} className={`border-b ${isCurrent ? "bg-amber-50" : ""}`}>
+                <td className="py-2 flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full" style={{ background: tv.team.color }} />
+                  {tv.team.name}
+                  {isCurrent && <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded">turn</span>}
+                </td>
+                <td className="py-2 text-right">${tv.cash}</td>
+                <td className="py-2 text-right">${tv.loanPayable}</td>
+                <td className="py-2 text-right">{tv.propertyCount}</td>
+                <td className="py-2 text-right">{tv.team.position}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TeamPicker({
+  state,
+  selectedTeamId,
+  onSelect,
+}: {
+  state: import("../api.js").GameState;
+  selectedTeamId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {state.teams.map((tv) => (
+        <button
+          key={tv.team.id}
+          onClick={() => onSelect(tv.team.id)}
+          className={`px-3 py-1.5 rounded-lg border text-sm ${
+            selectedTeamId === tv.team.id ? "bg-slate-800 text-white border-slate-800" : "bg-white border-slate-300"
+          }`}
+        >
+          <span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle" style={{ background: tv.team.color }} />
+          {tv.team.name}
+        </button>
+      ))}
+    </div>
+  );
+}

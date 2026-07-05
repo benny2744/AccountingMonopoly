@@ -6,6 +6,7 @@ import type { GameState, TeamView } from "../api.js";
 // Handles `awaiting_choice` pending actions: buy_or_skip, rent_due, bank_stop.
 export default function ActionModal({ state, currentTeam }: { state: GameState; currentTeam: TeamView | null }) {
   const setState = useGameStore((s) => s.setState);
+  const setSocketError = useGameStore((s) => s.setSocketError);
   const [loanAmount, setLoanAmount] = useState(100);
   if (!state.pending || !currentTeam) return null;
   const pending = state.pending;
@@ -18,7 +19,7 @@ export default function ActionModal({ state, currentTeam }: { state: GameState; 
       const { state: s } = await api.resolveEvent(state.game.id, currentTeam!.team.id, choice, amount);
       setState(s);
     } catch (e) {
-      alert((e as Error).message);
+      setSocketError({ code: "ERROR", message: (e as Error).message });
     }
   }
 

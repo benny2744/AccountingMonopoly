@@ -42,16 +42,22 @@ directly from its TypeScript source (no build step required for dev).
   - `boardPresets.ts` — the 24-space simple board.
   - `eventCards.ts` — cash-basis and accrual event decks.
 - Server game logic: [`apps/server/src/services/`](apps/server/src/services)
-  - `gameService.ts` — room/team lifecycle, turn orchestration.
-  - `turnService.ts` — dice, movement, landing resolution.
+  - `gameService.ts` — room/team lifecycle, start gating, teacher controls.
+  - `turnService.ts` — dice, movement, landing resolution, `endTurn`.
   - `accountingService.ts` — bridges game events to the shared entry rules and posts entries.
-  - `stateService.ts` — in-memory projection of current game state for fast reads.
+  - `stateService.ts` — projection of current game state for reads and broadcasts.
+  - `sessionsService.ts` — session tokens bound to `{gameId, role, teamId}`.
+  - `gameLock.ts` — per-game in-process mutex shared by REST and Socket.IO.
   - `eventLog.ts` — appends and reads `GameEvent` rows.
+- Real-time: [`apps/server/src/socket.ts`](apps/server/src/socket.ts) — Socket.IO
+  rooms keyed by `roomCode`, role guards, full-state `game:state_updated` broadcasts.
 - Persistence: [`apps/server/src/db/`](apps/server/src/db)
-  - `schema.ts` (Drizzle), `queries.ts`, `client.ts`, `nativeBridge.ts`.
+  - `schema.ts`, `queries.ts`, `client.ts` (`node:sqlite`).
 - REST: [`apps/server/src/routes/games.ts`](apps/server/src/routes/games.ts).
-- Client UI: [`apps/client/src/components/`](apps/client/src/components) and
-  [`apps/client/src/routes/`](apps/client/src/routes).
+- Client UI: [`apps/client/src/components/`](apps/client/src/components),
+  [`apps/client/src/routes/`](apps/client/src/routes) (`TeamDashboard`,
+  `TeacherDashboard`, `DisplayPage`, `LobbyPage`, `JoinPage`), and
+  [`apps/client/src/store.ts`](apps/client/src/store.ts) (Zustand + Socket.IO).
 
 ## Request and event flow
 
@@ -64,11 +70,12 @@ Express route (Zod-validated payload) ◄─────┘
    ▼
 GameService / TurnService / AccountingService
    │  1. Validate game rule + accounting rule
-   │  2. Append GameEvent row (SQLite, via Drizzle)
+   │  2. Append GameEvent row (SQLite)
    │  3. Apply to in-memory state projection
    │  4. Compute broadcast payload (often via shared engine)
    ▼
-Socket.IO broadcast: game:state_updated, game:event_created, game:journal_entry_posted, ...
+Socket.IO broadcast: `game:state_updated` (full snapshot), `game:error` (to the
+offending socket only).
    │
    ▼
 All clients in the room update their Zustand store and re-render.
@@ -134,9 +141,11 @@ trail clean.
 
 - **Shared engine** carries the heaviest unit-test coverage, including the two
   PRD §32 scenarios. These run on every `pnpm test`.
-- **Server** has integration tests (`game.integration.test.ts`) that drive the
-  full create → roll → resolve → journal-entry → statement flow against an
-  in-memory SQLite database.
+- **Server** has integration tests:
+  - `game.integration.test.ts` — REST create → roll → resolve → journal → statements.
+  - `socket.integration.test.ts` — out-of-turn rolls, broadcast fan-out, reconnect
+    with token, pause blocking all mutators, `endTurn` authorization, teacher/team
+    role guards.
 - **Client** is currently exercised through the integration flow; a dedicated
   component test layer can be added without changing this architecture.
 

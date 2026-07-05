@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useGameStore, api } from "../store.js";
+import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import Board from "../components/Board.js";
 import Sidebar from "../components/Sidebar.js";
 import JournalEntryPanel from "../components/JournalEntryPanel.js";
@@ -11,28 +12,35 @@ import type { TeamView } from "../api.js";
 
 type Tab = "board" | "taccounts" | "statements";
 
-export default function GamePage() {
-  const { gameId = "" } = useParams<{ gameId: string }>();
-  const { state, error, setGameId, setState, setError } = useGameStore();
+export default function TeamDashboard() {
+  const { roomCode = "" } = useParams<{ roomCode: string }>();
+  const { loading, error } = useRoomConnection(roomCode, "team");
+  const { state, session } = useGameStore();
+  const setSocketError = useGameStore((s) => s.setSocketError);
   const [tab, setTab] = useState<Tab>("board");
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setGameId(gameId);
-    api.getState(gameId).then(setState).catch((e) => setError((e as Error).message));
-  }, [gameId, setGameId, setState, setError]);
 
   if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
-  if (!state) return <div className="p-8">Loading…</div>;
+  if (loading || !state) return <div className="p-8">Connecting to room {roomCode}…</div>;
 
+  const myTeamId = session?.teamId ?? null;
+  const myTeam = state.teams.find((t) => t.team.id === myTeamId) ?? null;
   const currentTeam = state.teams.find((t) => t.team.id === state.game.currentTeamId) ?? null;
-  const selectedTeam = state.teams.find((t) => t.team.id === selectedTeamId) ?? currentTeam ?? state.teams[0]!;
+  const isMyTurn = currentTeam != null && myTeamId === currentTeam.team.id;
 
   return (
     <div className="min-h-screen p-4">
-      <header className="flex items-center justify-between mb-4">
+      <header className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold">Accounting Monopoly</h1>
+          <h1 className="text-xl font-bold">
+            {myTeam ? (
+              <>
+                <span className="inline-block w-3 h-3 rounded-full mr-2 align-middle" style={{ background: myTeam.team.color }} />
+                {myTeam.team.name}
+              </>
+            ) : (
+              "Team Dashboard"
+            )}
+          </h1>
           <div className="text-sm text-slate-500">
             Room <span className="font-mono font-semibold">{state.game.roomCode}</span> ·{" "}
             {state.game.difficulty === "cash" ? "Cash Basis" : "Accrual Basis"} · Turn {state.game.currentTurnNumber}
@@ -47,39 +55,65 @@ export default function GamePage() {
                 tab === t ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
               }`}
             >
-              {t === "board" ? "Board" : t === "taccounts" ? "T-Accounts" : "Statements"}
+              {t === "board" ? "Board" : t === "taccounts" ? "My T-Accounts" : "My Statements"}
             </button>
           ))}
         </div>
       </header>
+
+      {state.game.status === "paused" && (
+        <div className="mb-4 bg-amber-100 border border-amber-300 text-amber-900 rounded-lg p-3 font-medium">
+          ⏸ Game paused by teacher.
+        </div>
+      )}
+
+      {!isMyTurn && currentTeam && state.game.status === "active" && (
+        <div className="mb-4 bg-slate-100 rounded-lg p-3 text-slate-700 font-medium">
+          Waiting for {currentTeam.team.name}…
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
         <div className="space-y-4">
           {tab === "board" && (
             <>
               <Board state={state} />
-              {currentTeam && state.pending && state.pending.status === "awaiting_journal" && (
+              {isMyTurn && currentTeam && state.pending && state.pending.status === "awaiting_journal" && (
                 <JournalEntryPanel gameId={state.game.id} pending={state.pending} currentTeam={currentTeam} difficulty={state.game.difficulty} />
               )}
-              <ActionModal state={state} currentTeam={currentTeam} />
+              {isMyTurn && <ActionModal state={state} currentTeam={currentTeam} />}
+              {!isMyTurn && state.pending && state.pending.status === "awaiting_journal" && (
+                <div className="text-sm text-slate-600 italic">
+                  {currentTeam?.team.name} is recording a journal entry…
+                </div>
+              )}
             </>
           )}
-          {tab === "taccounts" && <TAccountsView gameId={state.game.id} teamView={selectedTeam} />}
-          {tab === "statements" && <StatementsView gameId={state.game.id} teamView={selectedTeam} />}
+          {tab === "taccounts" && myTeam && (
+            <TAccountsView
+              gameId={state.game.id}
+              teamView={myTeam}
+              refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
+            />
+          )}
+          {tab === "statements" && myTeam && (
+            <StatementsView
+              gameId={state.game.id}
+              teamView={myTeam}
+              refreshKey={`${state.game.updatedAt ?? ""}-${state.game.currentTurnNumber}`}
+            />
+          )}
         </div>
 
-        <Sidebar
-          state={state}
-          selectedTeamId={selectedTeam?.team.id ?? null}
-          onSelectTeam={setSelectedTeamId}
-        />
+        <Sidebar state={state} selectedTeamId={myTeam?.team.id ?? null} onSelectTeam={() => undefined} />
       </div>
 
-      {state.game.status === "active" && currentTeam && (
+      {state.game.status === "active" && isMyTurn && currentTeam && (
         <BottomBar
           gameId={state.game.id}
           teamId={currentTeam.team.id}
           turnPhase={state.game.turnPhase}
+          onError={setSocketError}
         />
       )}
     </div>
@@ -90,20 +124,21 @@ function BottomBar({
   gameId,
   teamId,
   turnPhase,
+  onError,
 }: {
   gameId: string;
   teamId: string;
   turnPhase: "awaiting_roll" | "resolving" | "awaiting_end";
+  onError: (e: { code: string; message: string }) => void;
 }) {
-  const setState = useGameStore((s) => s.setState);
   const [busy, setBusy] = useState(false);
   async function act(path: "roll" | "end-turn") {
     setBusy(true);
     try {
-      const { state } = path === "roll" ? await api.roll(gameId, teamId) : await api.endTurn(gameId);
-      setState(state);
+      await (path === "roll" ? api.roll(gameId, teamId) : api.endTurn(gameId));
+      // State arrives via socket broadcast; nothing to set here.
     } catch (e) {
-      alert((e as Error).message);
+      onError({ code: "ERROR", message: (e as Error).message });
     } finally {
       setBusy(false);
     }

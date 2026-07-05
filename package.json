@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/client/tsconfig.json --noEmit",
     "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/client/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

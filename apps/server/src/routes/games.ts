@@ -1,14 +1,35 @@
 import type { Request, Response, NextFunction } from "express";
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { z } from "zod";
-import { createGame, startGame, GameError } from "../services/gameService.js";
-import { endTurn, resolveChoice, roll, submitJournalEntry } from "../services/turnService.js";
+import { networkInterfaces } from "node:os";
+import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn } from "../services/gameService.js";
+import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer } from "../services/turnService.js";
 import { getGameState, ledgerView, statementsView } from "../services/stateService.js";
 import { AccountingError } from "../services/accountingService.js";
 import { queries } from "../db/queries.js";
 import { accounting, game as gameData } from "@amono/shared";
+import {
+  createTeacherSession,
+  createTeamSession,
+  createDisplaySession,
+  getSession,
+  requireTeacherSession,
+  requireTeamSession,
+  requireEndTurnSession,
+  countJoinedTeams,
+  teamSessionCounts,
+  type Session,
+} from "../services/sessionsService.js";
+import { withGameLock } from "../services/gameLock.js";
 
-export const gamesRouter = Router();
+export const gamesRouter: RouterType = Router();
+
+/** Broadcast helper injected from index.ts so routes can fan out state updates. */
+type BroadcastFn = (gameId: string) => void;
+function broadcast(req: Request, gameId: string): void {
+  const fn = req.app.get("broadcastState") as BroadcastFn | undefined;
+  if (fn) fn(gameId);
+}
 
 const createGameSchema = z.object({
   roomName: z.string().optional(),
@@ -24,7 +45,102 @@ gamesRouter.post("/", (req, res, next) => {
   try {
     const input = createGameSchema.parse(req.body);
     const game = createGame(input);
-    res.status(201).json({ game, chart: accounting.getChartOfAccounts(game.difficulty) });
+    const session = createTeacherSession(game.id, input.teacherPin);
+    res.status(201).json({
+      game,
+      chart: accounting.getChartOfAccounts(game.difficulty),
+      sessionToken: session.token,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// LAN address report for lobby "copyable join URL" (PLAN-03 §3).
+gamesRouter.get("/meta/lan-info", (_req, res) => {
+  res.json({ lanIps: collectLanIps(), port: Number(process.env.PORT ?? 5000) });
+});
+
+/** Room lookup by code (PLAN-03 §3) — students type a code in /join. */
+gamesRouter.get("/by-code/:roomCode", (req, res, next) => {
+  try {
+    const game = queries.gameByRoomCode(req.params.roomCode);
+    if (!game) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "No room with that code" } });
+      return;
+    }
+    const counts = teamSessionCounts(game.id);
+    res.json({
+      gameId: game.id,
+      roomCode: game.roomCode,
+      status: game.status,
+      difficulty: game.difficulty,
+      settings: game.settings,
+      joinedTeams: countJoinedTeams(game.id),
+      teams: queries.teamsByGame(game.id).map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        joinedCount: counts.get(t.id) ?? 0,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Join flows (Phase 3 §1, §3).
+const teacherJoinSchema = z.object({ teacherPin: z.string().min(1) });
+gamesRouter.post("/by-code/:roomCode/teacher-join", (req, res, next) => {
+  try {
+    const { teacherPin } = teacherJoinSchema.parse(req.body);
+    const game = queries.gameByRoomCode(req.params.roomCode);
+    if (!game) throw new GameError("NOT_FOUND", "No room with that code");
+    const session = createTeacherSession(game.id, teacherPin);
+    res.json({ sessionToken: session.token, gameId: game.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const teamJoinSchema = z.object({ teamId: z.string(), displayName: z.string().optional() });
+gamesRouter.post("/:gameId/join", (req, res, next) => {
+  try {
+    const { teamId, displayName } = teamJoinSchema.parse(req.body);
+    const session = createTeamSession(req.params.gameId, teamId, displayName);
+    broadcast(req, req.params.gameId);
+    res.json({ sessionToken: session.token, gameId: session.gameId, teamId });
+  } catch (e) {
+    next(e);
+  }
+});
+
+gamesRouter.post("/:gameId/display-join", (req, res, next) => {
+  try {
+    const game = queries.gameById(req.params.gameId);
+    if (!game) throw new GameError("NOT_FOUND", "Game not found");
+    const session = createDisplaySession(req.params.gameId);
+    res.json({ sessionToken: session.token, gameId: session.gameId });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Session restore on refresh/reconnect (PLAN-03 §1).
+gamesRouter.get("/session", (req, res, next) => {
+  try {
+    const auth = req.header("Authorization");
+    const token = auth?.startsWith("Bearer ") ? auth.slice(7) : auth;
+    if (!token) {
+      res.status(401).json({ error: { code: "NO_SESSION", message: "No token" } });
+      return;
+    }
+    const s = getSession(token);
+    if (!s) {
+      res.status(401).json({ error: { code: "NO_SESSION", message: "Invalid or expired token" } });
+      return;
+    }
+    res.json({ session: s });
   } catch (e) {
     next(e);
   }
@@ -46,21 +162,27 @@ gamesRouter.get("/:gameId/properties", (req, res, next) => {
   }
 });
 
-const startSchema = z.object({ teacherPin: z.string() });
-gamesRouter.post("/:gameId/start", (req, res, next) => {
+const startSchema = z.object({ teacherPin: z.string(), override: z.boolean().optional() });
+gamesRouter.post("/:gameId/start", async (req, res, next) => {
   try {
-    const { teacherPin } = startSchema.parse(req.body);
-    const game = startGame(req.params.gameId, teacherPin);
+    const { teacherPin, override } = startSchema.parse(req.body);
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const game = await withGameLock(req.params.gameId, () =>
+      startGame(req.params.gameId, teacherPin, { overrideMinTeams: override }),
+    );
+    broadcast(req, game.id);
     res.json(getGameState(game.id));
   } catch (e) {
     next(e);
   }
 });
 
-gamesRouter.post("/:gameId/roll", (req, res, next) => {
+gamesRouter.post("/:gameId/roll", async (req, res, next) => {
   try {
     const { teamId } = z.object({ teamId: z.string() }).parse(req.body);
-    const result = roll(req.params.gameId, teamId);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, teamId);
+    const result = await withGameLock(req.params.gameId, () => roll(req.params.gameId, teamId));
+    broadcast(req, req.params.gameId);
     res.json({ result, state: getGameState(req.params.gameId) });
   } catch (e) {
     next(e);
@@ -72,10 +194,12 @@ const resolveSchema = z.object({
   choice: z.string(),
   amount: z.number().int().positive().optional(),
 });
-gamesRouter.post("/:gameId/resolve-event", (req, res, next) => {
+gamesRouter.post("/:gameId/resolve-event", async (req, res, next) => {
   try {
     const input = resolveSchema.parse(req.body);
-    resolveChoice(req.params.gameId, input.teamId, input);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
+    await withGameLock(req.params.gameId, () => resolveChoice(req.params.gameId, input.teamId, input));
+    broadcast(req, req.params.gameId);
     res.json({ state: getGameState(req.params.gameId) });
   } catch (e) {
     next(e);
@@ -88,20 +212,68 @@ const journalSchema = z.object({
   creditAccount: z.string(),
   amount: z.number().int().positive(),
 });
-gamesRouter.post("/:gameId/submit-journal-entry", (req, res, next) => {
+gamesRouter.post("/:gameId/submit-journal-entry", async (req, res, next) => {
   try {
     const input = journalSchema.parse(req.body);
-    const result = submitJournalEntry(req.params.gameId, input.teamId, input);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
+    const result = await withGameLock(req.params.gameId, () =>
+      submitJournalEntry(req.params.gameId, input.teamId, input),
+    );
+    broadcast(req, req.params.gameId);
     res.json({ result, state: getGameState(req.params.gameId) });
   } catch (e) {
     next(e);
   }
 });
 
-gamesRouter.post("/:gameId/end-turn", (req, res, next) => {
+gamesRouter.post("/:gameId/end-turn", async (req, res, next) => {
   try {
-    const game = endTurn(req.params.gameId);
+    requireEndTurnSession(req.header("Authorization"), req.params.gameId);
+    const game = await withGameLock(req.params.gameId, () => endTurn(req.params.gameId));
+    broadcast(req, game.id);
     res.json({ state: getGameState(game.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---- Teacher-only controls (Phase 3 §5) ----
+gamesRouter.post("/:gameId/pause", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const game = await withGameLock(req.params.gameId, () => pauseGame(req.params.gameId));
+    broadcast(req, game.id);
+    res.json(getGameState(game.id));
+  } catch (e) {
+    next(e);
+  }
+});
+gamesRouter.post("/:gameId/resume", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const game = await withGameLock(req.params.gameId, () => resumeGame(req.params.gameId));
+    broadcast(req, game.id);
+    res.json(getGameState(game.id));
+  } catch (e) {
+    next(e);
+  }
+});
+gamesRouter.post("/:gameId/force-next-turn", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    const game = await withGameLock(req.params.gameId, () => forceNextTurn(req.params.gameId));
+    broadcast(req, game.id);
+    res.json(getGameState(game.id));
+  } catch (e) {
+    next(e);
+  }
+});
+gamesRouter.post("/:gameId/reveal-answer", async (req, res, next) => {
+  try {
+    requireTeacherSession(req.header("Authorization"), req.params.gameId);
+    await withGameLock(req.params.gameId, () => revealAnswer(req.params.gameId));
+    broadcast(req, req.params.gameId);
+    res.json({ state: getGameState(req.params.gameId) });
   } catch (e) {
     next(e);
   }
@@ -144,7 +316,15 @@ gamesRouter.get("/:gameId/deck", (req, res, next) => {
 // Zod errors → 400; GameError → its code; otherwise 500.
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof GameError || err instanceof AccountingError) {
-    res.status(400).json({ error: { code: err.code, message: err.message } });
+    const status =
+      err.code === "NO_SESSION" ||
+      err.code === "NOT_TEACHER" ||
+      err.code === "NOT_YOUR_TEAM" ||
+      err.code === "NOT_YOUR_TURN" ||
+      err.code === "WRONG_GAME"
+        ? 401
+        : 400;
+    res.status(status).json({ error: { code: err.code, message: err.message } });
     return;
   }
   if (err instanceof z.ZodError) {
@@ -153,4 +333,26 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   console.error(err);
   res.status(500).json({ error: { code: "INTERNAL", message: (err as Error).message } });
+}
+
+/** Any valid session for this game (team, teacher, or display). */
+function requireAnySession(auth: string | undefined, gameId: string): Session {
+  const token = (auth ?? "").startsWith("Bearer ") ? (auth ?? "").slice(7) : auth ?? "";
+  const session = getSession(token);
+  if (!session) throw new GameError("NO_SESSION", "Missing or invalid session token");
+  if (session.gameId !== gameId) throw new GameError("WRONG_GAME", "Session is for a different game");
+  return session;
+}
+
+/** IPv4 LAN addresses (RFC1918 + link-local) for the lobby join URL. */
+function collectLanIps(): string[] {
+  const nets = networkInterfaces();
+  const out: string[] = [];
+  for (const list of Object.values(nets)) {
+    if (!list) continue;
+    for (const n of list) {
+      if (n.family === "IPv4" && !n.internal) out.push(n.address);
+    }
+  }
+  return out;
 }

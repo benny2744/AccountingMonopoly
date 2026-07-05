@@ -5,6 +5,7 @@ import { queries } from "../db/queries.js";
 import { logEvent } from "./eventLog.js";
 import { postEntry } from "./accountingService.js";
 import { now, roomCode, sha256, uuid } from "../util/ids.js";
+import { countJoinedTeams } from "./sessionsService.js";
 
 const { getChartOfAccounts } = accounting;
 const { buildBoardForGame, DEFAULT_GAME_SETTINGS, teamColor, teamName } = gameData;
@@ -103,7 +104,7 @@ function uniqueRoomCode(): string {
   return roomCode() + "0";
 }
 
-export function startGame(gameId: string, teacherPin: string): Game {
+export function startGame(gameId: string, teacherPin: string, opts?: { overrideMinTeams?: boolean }): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
   if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Game already started");
@@ -113,6 +114,11 @@ export function startGame(gameId: string, teacherPin: string): Game {
 
   const teams = queries.teamsByGame(gameId);
   if (teams.length < 2) throw new GameError("NOT_ENOUGH_TEAMS", "Need at least 2 teams");
+
+  const joinedTeams = countJoinedTeams(gameId);
+  if (joinedTeams < 2 && !opts?.overrideMinTeams) {
+    throw new GameError("NOT_ENOUGH_JOINED", `Need at least 2 teams with a student joined (${joinedTeams} joined)`);
+  }
 
   const db = getDb();
   db.exec("BEGIN");
@@ -213,4 +219,42 @@ export class GameError extends Error {
     super(message);
     this.name = "GameError";
   }
+}
+
+export function pauseGame(gameId: string): Game {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("paused", now(), gameId);
+  logEvent(gameId, null, "teacher_override", { action: "pause" });
+  return queries.gameById(gameId)!;
+}
+
+export function resumeGame(gameId: string): Game {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "paused") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("active", now(), gameId);
+  logEvent(gameId, null, "teacher_override", { action: "resume" });
+  return queries.gameById(gameId)!;
+}
+
+/** Teacher forcibly advances the turn (skipping any in-flight action). */
+export function forceNextTurn(gameId: string): Game {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active" && game.status !== "paused") {
+    throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  }
+  // Close any open pending action so endTurn will accept.
+  getDb().prepare("UPDATE pending_actions SET status = 'done' WHERE game_id = ? AND status != 'done'").run(gameId);
+  const teams = queries.teamsByGame(gameId);
+  const idx = teams.findIndex((t) => t.id === game.currentTeamId);
+  const next = teams[(idx + 1) % teams.length]!;
+  const ts = now();
+  getDb()
+    .prepare("UPDATE games SET status = 'active', current_team_id = ?, current_turn_number = current_turn_number + 1, turn_phase = ?, updated_at = ? WHERE id = ?")
+    .run(next.id, "awaiting_roll", ts, gameId);
+  logEvent(gameId, null, "teacher_override", { action: "force_next_turn", fromTeamId: game.currentTeamId, toTeamId: next.id });
+  return queries.gameById(gameId)!;
 }

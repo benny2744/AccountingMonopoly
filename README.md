@@ -19,8 +19,9 @@ Two difficulty modes are supported:
 
 ## Status
 
-Pre-1.0. The shared accounting engine and a local hot-seat game are in place;
-multiplayer rooms, accrual mode polish, and classroom UX are tracked in the
+Pre-1.0. The shared accounting engine, local hot-seat game, and **multiplayer
+classroom rooms** (sessions, Socket.IO sync, role dashboards, lobby join flow)
+are implemented. Accrual mode polish and classroom UX polish remain in the
 phase plans (see [Plans](#plans-and-specs)).
 
 ---
@@ -29,7 +30,7 @@ phase plans (see [Plans](#plans-and-specs)).
 
 - **Monorepo**: pnpm workspaces — `apps/client`, `apps/server`, `packages/shared`
 - **Client**: React 18 + Vite + TypeScript, Tailwind CSS, Zustand, `socket.io-client`
-- **Server**: Node 22 + Express + TypeScript, Socket.IO, better-sqlite3 + Drizzle ORM, Zod
+- **Server**: Node 22 + Express + TypeScript, Socket.IO, `node:sqlite` (hand-written SQL schema), Zod
 - **Shared**: pure TypeScript accounting engine (no React/Express dependencies)
 - **Tests**: Vitest everywhere; heaviest coverage in `packages/shared`
 
@@ -56,7 +57,7 @@ pnpm test
 ```
 
 For classroom/LAN deployment, build the client and run only the server —
-students join via `http://<teacher-LAN-IP>:5000`. See
+students join via `http://<teacher-LAN-IP>:5000/join/<roomCode>`. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---

@@ -18,6 +18,7 @@ export interface Game {
   currentTurnNumber: number;
   turnPhase: "awaiting_roll" | "resolving" | "awaiting_end";
   settings: GameSettings;
+  updatedAt?: string;
 }
 
 export interface Team {
@@ -123,14 +124,50 @@ export interface StatementsView {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("amono.sessionToken");
   const r = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
     ...init,
   });
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;
-  if (!r.ok) throw new Error(data?.error?.message ?? `HTTP ${r.status}`);
+  if (!r.ok) {
+    const err = new Error(data?.error?.message ?? `HTTP ${r.status}`) as Error & {
+      status?: number;
+      code?: string;
+    };
+    err.status = r.status;
+    err.code = data?.error?.code;
+    throw err;
+  }
   return data as T;
+}
+
+export interface SessionInfo {
+  token: string;
+  gameId: string;
+  role: "teacher" | "team" | "display";
+  teamId: string | null;
+  displayName: string | null;
+}
+
+export interface RoomLookup {
+  gameId: string;
+  roomCode: string;
+  status: Game["status"];
+  difficulty: Game["difficulty"];
+  settings: Game["settings"];
+  joinedTeams: number;
+  teams: { id: string; name: string; color: string; joinedCount: number }[];
+}
+
+export interface LanInfo {
+  lanIps: string[];
+  port: number;
 }
 
 export const api = {
@@ -141,12 +178,40 @@ export const api = {
     propertyAllocationRatio: number;
     startingCash: number;
     startingLoanLimit: number;
-  }) => req<{ game: Game }>("/games", { method: "POST", body: JSON.stringify(input) }),
+  }) => req<{ game: Game; sessionToken: string }>("/games", { method: "POST", body: JSON.stringify(input) }),
+
+  lookupRoom: (roomCode: string) =>
+    req<RoomLookup>(`/games/by-code/${roomCode.toUpperCase()}`),
+
+  lanInfo: () => req<LanInfo>("/games/meta/lan-info"),
+
+  teacherJoin: (roomCode: string, teacherPin: string) =>
+    req<{ sessionToken: string; gameId: string }>(`/games/by-code/${roomCode.toUpperCase()}/teacher-join`, {
+      method: "POST",
+      body: JSON.stringify({ teacherPin }),
+    }),
+
+  joinTeam: (gameId: string, teamId: string, displayName?: string) =>
+    req<{ sessionToken: string; gameId: string; teamId: string }>(`/games/${gameId}/join`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, displayName }),
+    }),
+
+  joinDisplay: (gameId: string) =>
+    req<{ sessionToken: string; gameId: string }>(`/games/${gameId}/display-join`, {
+      method: "POST",
+      body: "{}",
+    }),
+
+  getSession: () => req<{ session: SessionInfo }>("/games/session"),
 
   getState: (gameId: string) => req<GameState>(`/games/${gameId}`),
 
-  startGame: (gameId: string, teacherPin: string) =>
-    req<GameState>(`/games/${gameId}/start`, { method: "POST", body: JSON.stringify({ teacherPin }) }),
+  startGame: (gameId: string, teacherPin: string, override?: boolean) =>
+    req<GameState>(`/games/${gameId}/start`, {
+      method: "POST",
+      body: JSON.stringify({ teacherPin, override: override ?? false }),
+    }),
 
   roll: (gameId: string, teamId: string) =>
     req<{ result: any; state: GameState }>(`/games/${gameId}/roll`, {
@@ -168,9 +233,22 @@ export const api = {
 
   endTurn: (gameId: string) => req<{ state: GameState }>(`/games/${gameId}/end-turn`, { method: "POST", body: "{}" }),
 
+  pause: (gameId: string) => req<GameState>(`/games/${gameId}/pause`, { method: "POST", body: "{}" }),
+  resume: (gameId: string) => req<GameState>(`/games/${gameId}/resume`, { method: "POST", body: "{}" }),
+  forceNextTurn: (gameId: string) => req<GameState>(`/games/${gameId}/force-next-turn`, { method: "POST", body: "{}" }),
+  revealAnswer: (gameId: string) =>
+    req<{ state: GameState }>(`/games/${gameId}/reveal-answer`, { method: "POST", body: "{}" }),
+
   ledger: (gameId: string, teamId: string) =>
     req<{ accounts: any[]; tAccounts: TAccountRow[]; balances: any[] }>(`/games/${gameId}/teams/${teamId}/ledger`),
 
   statements: (gameId: string, teamId: string) =>
     req<StatementsView>(`/games/${gameId}/teams/${teamId}/statements`),
 };
+
+export function saveSession(token: string): void {
+  localStorage.setItem("amono.sessionToken", token);
+}
+export function clearSession(): void {
+  localStorage.removeItem("amono.sessionToken");
+}
