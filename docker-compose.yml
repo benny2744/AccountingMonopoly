@@ -1,0 +1,23 @@
+services:
+  amono:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: accounting-monopoly:latest
+    container_name: accounting-monopoly
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: "5000"
+      DB_PATH: "/data/game.db"
+    volumes:
+      # Bind mount: the SQLite file lives in ./data on the host, so it
+      # survives container rebuilds and is easy to inspect/backup.
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
