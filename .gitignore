@@ -1,0 +1,25 @@
+# deps
+node_modules/
+dist/
+*.tsbuildinfo
+
+# build outputs
+apps/client/dist/
+apps/server/dist/
+packages/shared/dist/
+
+# data
+data/
+*.db
+*.db-journal
+
+# env / os
+.env
+.env.*
+.DS_Store
+
+# logs / coverage
+*.log
+coverage/
+.npm/
+.pnpm-store/

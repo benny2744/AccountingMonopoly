@@ -1,0 +1,21 @@
+{
+  "name": "@amono/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./accounting": "./src/accounting/index.ts",
+    "./game": "./src/game/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -b"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}
