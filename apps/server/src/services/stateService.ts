@@ -1,7 +1,16 @@
 import type { Account, BoardSpace, CreditBalance, Game, GameEvent, JournalEntryLine, Property, Team } from "@amono/shared";
 import { accounting } from "@amono/shared";
 import { queries } from "../db/queries.js";
+import { getDb } from "../db/client.js";
 import { balancesFor } from "./accountingService.js";
+import { GameError } from "./gameService.js";
+import {
+  beginningCashForYear,
+  entriesForCashSummary,
+  linesForBalanceSheet,
+  linesForCashSummary,
+  linesForIncomeStatement,
+} from "./statementScope.js";
 import { pendingToView } from "./yearEndService.js";
 
 const { calculateAccountBalance } = accounting;
@@ -86,13 +95,25 @@ export interface StatementsView {
   cashSummary: ReturnType<typeof accounting.generateCashSummary>;
 }
 
-export function statementsView(teamId: string): StatementsView {
+export function statementsView(teamId: string, year?: number): StatementsView {
+  const teamRow = getDb().prepare("SELECT current_year FROM teams WHERE id = ?").get(teamId) as
+    | { current_year: number }
+    | undefined;
+  if (!teamRow) throw new GameError("NOT_FOUND", "Team not found");
+  const targetYear = year ?? teamRow.current_year;
+  if (!Number.isInteger(targetYear) || targetYear < 1 || targetYear > teamRow.current_year) {
+    throw new GameError("VALIDATION", `year must be 1..${teamRow.current_year}`);
+  }
+
   const accounts = queries.accountsByTeam(teamId);
-  const entries = queries.entriesByTeam(teamId);
-  const lines: JournalEntryLine[] = queries.linesForTeam(teamId);
+  const incomeLines = linesForIncomeStatement(teamId, targetYear);
+  const balanceLines = linesForBalanceSheet(teamId, targetYear);
+  const cashEntries = entriesForCashSummary(teamId, targetYear);
+  const cashLines = linesForCashSummary(teamId, targetYear);
+  const beginning = beginningCashForYear(teamId, targetYear);
   return {
-    income: accounting.generateIncomeStatement(accounts, lines),
-    balanceSheet: accounting.generateBalanceSheet(accounts, lines),
-    cashSummary: accounting.generateCashSummary(accounts, lines, entries, 0),
+    income: accounting.generateIncomeStatement(accounts, incomeLines),
+    balanceSheet: accounting.generateBalanceSheet(accounts, balanceLines),
+    cashSummary: accounting.generateCashSummary(accounts, cashLines, cashEntries, beginning),
   };
 }

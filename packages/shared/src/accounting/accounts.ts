@@ -16,8 +16,6 @@ export const CASH_BASIS_ACCOUNTS: readonly AccountDefinition[] = [
 
   { name: "Rent Expense", type: "expense" },
   { name: "Repair Expense", type: "expense" },
-  { name: "Charity Expense", type: "expense" },
-  { name: "Road Closure Expense", type: "expense" },
   { name: "Interest Expense", type: "expense" },
   { name: "Event Expense", type: "expense" },
 ];

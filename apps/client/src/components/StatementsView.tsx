@@ -19,15 +19,20 @@ export default function StatementsView({
   const [arap, setArap] = useState<{ rows: { type: "receivable" | "payable"; otherTeam: string | null; amount: number; source: string; status: string }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<StmtTab>("statements");
+  const [year, setYear] = useState(teamView.team.currentYear);
+
+  useEffect(() => {
+    setYear(teamView.team.currentYear);
+  }, [teamView.team.currentYear]);
 
   useEffect(() => {
     setData(null);
     setArap(null);
-    api.statements(gameId, teamView.team.id).then(setData).catch((e) => setError((e as Error).message));
+    api.statements(gameId, teamView.team.id, year).then(setData).catch((e) => setError((e as Error).message));
     if (difficulty === "accrual") {
       api.arapSchedule(gameId, teamView.team.id).then(setArap).catch((e) => setError((e as Error).message));
     }
-  }, [gameId, teamView.team.id, difficulty, refreshKey]);
+  }, [gameId, teamView.team.id, difficulty, refreshKey, year]);
 
   if (error) return <div className="text-red-600 p-4">{error}</div>;
   if (!data) return <div className="p-4">Loading statements…</div>;
@@ -36,6 +41,25 @@ export default function StatementsView({
 
   return (
     <div className="space-y-4">
+      {teamView.team.currentYear > 1 && tab === "statements" && (
+        <div className="flex items-center gap-2">
+          <label htmlFor="stmt-year" className="text-sm text-slate-600">
+            Year
+          </label>
+          <select
+            id="stmt-year"
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white"
+          >
+            {Array.from({ length: teamView.team.currentYear }, (_, i) => i + 1).map((y) => (
+              <option key={y} value={y}>
+                Year {y}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {difficulty === "accrual" && (
         <div className="flex gap-2">
           <button

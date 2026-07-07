@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GameState, TeamView } from "../api.js";
+import { latestEvent } from "../events.js";
 
-import Dice from "./Dice.js";
+import Dice, { STEP_MS } from "./Dice.js";
 
 const BOARD_SIZE = 11;
-const STEP_MS = 180;
-const ROLL_SETTLE_MS = 1500;
 
 function usePositionMap(spaces: GameState["spaces"]): Record<number, { row: number; col: number }> {
-  const placed = placePerimeter(spaces);
-  return Object.fromEntries(placed.map((p) => [p.space.index, { row: p.row, col: p.col }]));
+  return useMemo(() => {
+    const placed = placePerimeter(spaces);
+    return Object.fromEntries(placed.map((p) => [p.space.index, { row: p.row, col: p.col }]));
+  }, [spaces]);
 }
 
 export default function Board({
@@ -28,15 +29,54 @@ export default function Board({
   const gridRef = useRef<HTMLDivElement>(null);
   const [animatingTeams, setAnimatingTeams] = useState<Record<string, { row: number; col: number }>>({});
 
-  const latestRoll = [...state.events].reverse().find((e) => e.type === "roll");
+  const latestRoll = latestEvent(state.events, "roll");
   const latestRollId = latestRoll?.id ?? null;
   const isRolling = rolling ?? false;
+  /** Hydrate guard: skip pin/step for the roll already present on mount. */
+  const hydrated = useRef(false);
+  const skipRollId = useRef<string | null>(null);
+  /** Roll id already pinned at `from`. */
+  const pinnedRollId = useRef<string | null>(null);
+  /** Roll id that already completed the step animation. */
+  const steppedRollId = useRef<string | null>(null);
 
-  // Only step the token once the dice has settled.
+  // Pin the moving piece at `from` as soon as a new roll arrives (during dice tumble).
+  useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true;
+      skipRollId.current = latestRollId;
+      return;
+    }
+    if (!latestRoll) return;
+    if (latestRoll.id === skipRollId.current) return;
+    if (latestRoll.id === pinnedRollId.current) return;
+
+    pinnedRollId.current = latestRoll.id;
+    const { teamId, from } = latestRoll.payload as {
+      teamId: string;
+      from: number;
+      to: number;
+      dice: [number, number];
+      total: number;
+    };
+    setAnimatingTeams((prev) => ({ ...prev, [teamId]: positionMap[from] ?? { row: 1, col: 1 } }));
+  }, [latestRollId, positionMap]);
+
+  // Step the token once the dice has settled.
   useEffect(() => {
     if (isRolling) return;
     if (!latestRoll || !gridRef.current) return;
-    const { teamId, from, to } = latestRoll.payload as { teamId: string; from: number; to: number; dice: [number, number]; total: number };
+    if (latestRoll.id === skipRollId.current) return;
+    if (latestRoll.id === steppedRollId.current) return;
+
+    steppedRollId.current = latestRoll.id;
+    const { teamId, from, to } = latestRoll.payload as {
+      teamId: string;
+      from: number;
+      to: number;
+      dice: [number, number];
+      total: number;
+    };
     const moving = state.teams.find((t) => t.team.id === teamId);
     if (!moving) return;
 
@@ -224,8 +264,8 @@ function Center({
   controls?: React.ReactNode;
 }) {
   const current = state.teams.find((t) => t.team.id === state.game.currentTeamId);
-  const lastRoll = [...state.events].reverse().find((e) => e.type === "roll");
-  const lastEvent = [...state.events].reverse().find((e) => e.type !== "roll" && e.type !== "move");
+  const lastRoll = latestEvent(state.events, "roll");
+  const lastEvent = state.events.find((e) => e.type !== "roll" && e.type !== "move");
   const showDice = dice ?? (lastRoll ? (lastRoll.payload as any).dice : null);
   return (
     <div

@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **First roll popup before dice animation**: `useDiceRoll` now hydrates once when
+  game state first arrives (even with no roll events), so the first real roll
+  runs the tumble/animating window instead of being mistaken for hydration.
+- **Pieces stuck after roll**: Board pin effect no longer re-runs every render
+  (memoized `positionMap`; `pinnedRollId` guard). Board hydrate uses the same
+  mount-once pattern as dice.
+- **Board piece jump before animation**: pin the moving token at the roll's `from`
+  tile as soon as a new roll arrives (during the dice tumble), instead of
+  sitting at the server-updated destination until stepping starts.
+- **Board animation replay on tab switch**: skip pin/step for the roll already
+  present when the Board mounts, matching the dice hydrate guard.
+- **Tax tile popup**: `CardRevealModal` now handles `space_fee` pendings (Income
+  Tax / Luxury Tax) with an amber Tax header before the journal panel.
+- **Event card amount sign**: card reveal shows `−$` for outflows and `+$` for
+  inflows based on `card.kind`, not raw positive amounts.
+- **Income statement empty after year-end**: `statementsView` is scoped by
+  fiscal year (income/cash for the selected year; balance sheet cumulative
+  through that year). Closing entries (`ye-close-*`) are excluded from income
+  and cash summaries. Optional `?year=` on the statements route; client year
+  selector when `currentYear > 1`.
+
+### Changed
+- **Event card expenses unified to Event Expense**: removed per-card
+  `expenseAccount` overrides (Repair/Charity/Road Closure). All event cards
+  now post to **Event Expense**. Removed **Charity Expense** and **Road Closure
+  Expense** from the chart of accounts so they no longer appear in the journal
+  dropdown. *Deviation from PRD §22/§10.1; **Repair Expense** remains for
+  scenario tests and repair entry rules.*
+
 ### Added
 - **In-board player controls** (PRD §20.2): Roll Dice / End Turn buttons now
   render inside the blank center of the game board instead of a viewport-fixed

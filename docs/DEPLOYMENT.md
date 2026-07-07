@@ -14,6 +14,10 @@ required.
 
 This document covers the **classroom** mode.
 
+> **Recommended:** use [Docker](DOCKER.md) (`docker compose up --build -d`) —
+> no Node/pnpm install on the host, reproducible builds, and persistent
+> `./data/game.db`. After major upgrades, wipe `./data` and create a fresh room.
+
 ## Prerequisites on the host machine
 
 - **Node.js 22+** and **pnpm 9+**.
@@ -83,13 +87,17 @@ Example: if the host is `10.0.5.137`:
    can roll.
 6. After each money event, the active student submits a journal entry. The
    server validates it and (per the room's journal entry mode) auto-posts the
-   counterparty entry.
+   counterparty entry. Event cards and tax tiles show a reveal popup (with
+   signed amounts) before the journal form; both wait until dice and piece
+   movement finish. All event-card expenses post to **Event Expense**.
 7. Teacher can pause/resume, force the next turn, reveal the correct entry
    (with confirmation), override mistakes, end the game, clone settings for a
    new room, and trigger year-end from the teacher dashboard.
 8. Open the **Display** URL on the projector for the shared board, leaderboard,
    and celebration banners.
 9. At the end, use **Export** to download the game summary as JSON or CSV.
+   On the **Statements** tab, students can switch fiscal years once
+   `currentYear > 1` to review closed-year income after year-end closing.
 
 ## Data and persistence
 

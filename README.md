@@ -75,6 +75,10 @@ docker compose up --build -d
 Then open `http://localhost:5000` (or `http://<teacher-LAN-IP>:5000` from a
 student device). The SQLite database persists at `./data/game.db` on the host.
 
+After upgrading the image across major releases (classic board, houses, etc.),
+wipe `./data` once and create a fresh teacher room — see
+[docs/DOCKER.md](docs/DOCKER.md#upgrade).
+
 Full instructions: [docs/DOCKER.md](docs/DOCKER.md).
 
 ### Resetting local state
@@ -86,7 +90,9 @@ the schema on next start.
 
 ## Implemented features (MVP scope)
 
-- **Cash & accrual difficulty modes** with the full PRD §10 chart of accounts.
+- **Cash & accrual difficulty modes** with the PRD §10 chart of accounts
+  (event cards post to **Event Expense**; Charity/Road Closure decoys removed
+  from the journal dropdown — see CHANGELOG for PRD deviations).
 - **Server-authoritative, event-sourced** gameplay: every state change is
   persisted as a `GameEvent` row before state mutates.
 - **Multiplayer over LAN** via Socket.IO: teacher, per-team student clients,
@@ -106,10 +112,16 @@ the schema on next start.
   spaces (Community Chest / Chance), income & luxury tax, simplified
   houses/hotels with `Buildings` journal entries, year-end on passing GO only.
 - **In-board player controls**: Roll Dice / End Turn buttons render inside the
-  board's center area (no viewport overlay); card draws pop up a themed modal
-  before the journal panel.
+  board's center area (no viewport overlay); event cards and tax tiles pop up a
+  themed modal (Community Chest / Chance / Tax) with signed amounts before the
+  journal panel.
 - **Animated dice + piece movement**: tumbling 2D dice (~1.5s spin with face
   cycling) and step-through token animation that begins once the dice settles.
+  Card, tax, and rent popups wait until dice + movement finish (hydrate guards
+  prevent replay when switching tabs back to the board).
+- **Year-scoped financial statements**: income statement and cash summary are
+  filtered by fiscal year (defaults to the current year; year selector when
+  `currentYear > 1` so closed years stay visible after year-end closing).
 - **Two-sided journaling**: when a team pays rent (or settles a multi-team
   event card), the **receiving team** also records their own journal entry
   before the turn advances — no silent auto-posts. Teacher **Reveal Answer**

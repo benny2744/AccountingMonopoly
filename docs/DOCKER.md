@@ -4,6 +4,13 @@ The fastest way to run Accounting Monopoly for a class. The image bundles
 the built client and the Node 22 + Socket.IO server into a single container;
 students join over the LAN at `http://<teacher-LAN-IP>:5000`.
 
+**Current image includes:** classic 40-space Monopoly-style board, houses/hotels,
+railroads, card-draw spaces, pass-GO year-end, two-sided rent journaling
+(payer + receiver), lobby team add/remove (2–4 teams), hints/scoring/export,
+animated dice with modal gating (cards/tax wait for dice + piece movement),
+year-scoped financial statements, in-board controls, properties tab, and teacher
+recovery tools (Reveal Answer, Force next turn with counterparty auto-post).
+
 ## What you need
 
 - A host with **Docker 24+** and the **Docker Compose plugin** (`docker compose`)
@@ -19,8 +26,8 @@ cd AccountingMonopoly
 docker compose up --build -d
 ```
 
-First build takes ~2 minutes (installs pnpm deps + builds the client). Watch
-the logs with:
+First build takes ~2 minutes (installs pnpm deps, type-checks shared + client,
+builds the Vite bundle). Watch the logs with:
 
 ```bash
 docker compose logs -f amono
@@ -35,6 +42,25 @@ curl http://localhost:5000/api/health
 # → {"ok":true}
 ```
 
+Open the app in a browser:
+
+```bash
+# Teacher (same host)
+open http://localhost:5000/join
+
+# Or from any device on the LAN
+open http://<LAN-IP>:5000/join
+```
+
+Routes served by the bundled SPA (no separate web server):
+
+| URL | Role |
+| --- | --- |
+| `/join` | Students pick a team; teacher creates a room |
+| `/teacher/:roomCode` | Teacher dashboard |
+| `/game/:roomCode` | Team dashboard (roll, journal, build houses) |
+| `/display/:roomCode` | Projector / read-only display |
+
 ## Find the LAN IP for students
 
 ```bash
@@ -42,12 +68,16 @@ curl http://localhost:5000/api/health
 hostname -I
 # macOS
 ipconfig getifaddr en0
-# Docker host (any OS)
+# From inside the container
 docker compose exec amono wget -qO- http://localhost:5000/api/games/meta/lan-info
 ```
 
 Share `http://<LAN-IP>:5000/join` with students. The teacher opens the same
 URL and clicks **Create Teacher Room**.
+
+**Multi-tab tip:** each browser tab keeps its own session token
+(`sessionStorage`), so you can open teacher + team dashboards in separate tabs
+on one machine without breaking Roll Dice.
 
 ## Where the data lives
 
@@ -59,6 +89,17 @@ upgrades.
 ls -la data/
 # game.db  game.db-shm  game.db-wal   ← WAL mode keeps 3 files; treat them as a set
 ```
+
+On startup the server runs **guarded schema migrations** (`ALTER TABLE … ADD
+COLUMN`) for Phase 4/5 and classic-board columns (`properties.houses`,
+`kind`, `color_group`, `hints_used`, score columns, etc.). Existing databases
+pick up new columns automatically.
+
+> **Important:** board layout and spaces are fixed when a game is **created**.
+> After upgrading to a build with the classic 40-space board, **in-progress or
+> lobby games from an older image may behave incorrectly** even though columns
+> migrate. For a clean classroom session, wipe `./data` once after a major
+> upgrade (see below) and create a fresh room.
 
 ## Day-to-day operations
 
@@ -78,8 +119,18 @@ docker compose up --build -d
 ```
 
 The `pnpm-lock.yaml` is `--frozen-lockfile`-locked, so the build is
-reproducible. The schema is migrated on startup; new columns are added
-with `ALTER TABLE … ADD COLUMN` and tolerate databases from prior phases.
+reproducible. Schema columns migrate on startup.
+
+**After a major release** (classic board, houses, counterparty journaling):
+
+```bash
+docker compose down
+rm -rf data/                 # optional but recommended — stale rooms confuse testing
+docker compose up --build -d
+```
+
+Then create a **new teacher room** and verify roll → buy/rent → journal →
+export from the teacher dashboard.
 
 ### Back up the database mid-session
 
@@ -90,6 +141,13 @@ into the main file):
 docker compose stop
 cp data/game.db data/backup-$(date +%Y%m%d-%H%M).db
 docker compose start
+```
+
+Teacher export (no stop required for a snapshot, but stop is safer for file copy):
+
+```bash
+curl -H "Authorization: Bearer <teacher-token>" \
+  "http://localhost:5000/api/games/<gameId>/export?format=json" -o session.json
 ```
 
 ### Reset to a fresh game
@@ -115,6 +173,7 @@ Useful queries:
 ```sql
 .tables
 SELECT room_code, status, difficulty FROM games;
+SELECT name, kind, houses, color_group FROM properties LIMIT 10;
 SELECT type, COUNT(*) FROM game_events GROUP BY type;
 ```
 
@@ -167,20 +226,28 @@ services:
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `docker compose` not found | Install the Compose plugin (Docker Desktop includes it; on Linux: `apt install docker-compose-plugin`). |
-| Healthcheck stuck "unhealthy" | Check `docker compose logs amono` for a port conflict or DB-permission error on `./data`. |
+| Healthcheck stuck "unhealthy" | Check `docker compose logs amono` for a port conflict or DB-permission error on `./data`. Allow 15s start period for migrations. |
 | Students can't reach the server | Wrong LAN IP, port 5000 blocked, or client-isolation enabled on the school Wi-Fi. |
-| Build fails on `pnpm install` | Ensure `pnpm-lock.yaml` is committed; delete `node_modules/` and re-run. |
+| Build fails on `pnpm install` | Ensure `pnpm-lock.yaml` is committed; delete local `node_modules/` and re-run. |
+| Build fails on `tsc` | Fix TypeScript errors locally with `pnpm build` before rebuilding the image. |
+| Roll Dice does nothing / 401 | Multiple roles in one tab overwrote the session token in older builds; use **separate tabs** (current client uses per-tab `sessionStorage`). |
+| Board looks wrong after upgrade | Wipe `./data`, rebuild, and create a **new room** — old games keep their original board rows. |
+| Rent stuck waiting for receiver | Expected with two-sided journaling; receiver opens their team tab and journals, or teacher uses **Reveal Answer** / **Force next turn**. |
 | Database locked / WAL files growing | Stop the container cleanly (`docker compose stop`) before backing up. |
 | Want to start over | `docker compose down && rm -rf data && docker compose up -d`. |
 
 ## How the image is structured
 
-- **Stage 1 (`build`)**: installs all workspace deps, runs
-  `pnpm --filter @amono/client build`, produces `apps/client/dist/`.
-- **Stage 2 (`runtime`)**: re-installs full deps (server runs TypeScript via
-  `tsx`), copies `packages/shared/src`, `apps/server/src`, and the prebuilt
-  client. Runs as the non-root `node` user. Listens on `0.0.0.0:5000`.
+- **Stage 1 (`build`)**: installs workspace deps, type-checks `packages/shared`
+  and `apps/client`, runs `pnpm --filter @amono/client build`, produces
+  `apps/client/dist/`.
+- **Stage 2 (`runtime`)**: re-installs full workspace deps (server runs
+  TypeScript via `tsx`), copies `packages/shared/src`, `apps/server/src`, and
+  the prebuilt client bundle. Runs as **root** so the bind-mounted `./data`
+  directory is writable on any host uid. Listens on `0.0.0.0:5000`.
 
 The Express server serves the built client bundle with an SPA fallback, so
 `/join`, `/game/:code`, `/teacher/:code`, and `/display/:code` all work
-directly on student devices without a separate web server.
+directly on student devices without a separate web server. Socket.IO shares
+the same origin and port — no reverse-proxy WebSocket config needed for the
+default compose setup.

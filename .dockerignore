@@ -19,6 +19,7 @@ data/
 .git/
 .gitignore
 .github/
+.cursor/
 
 # Logs / coverage / temp
 *.log
@@ -32,6 +33,11 @@ coverage/
 .vscode/
 .idea/
 
-# Docs-only files (keep image lean)
+# Docs-only files (keep image lean; see docs/DOCKER.md on the host)
 AGENTS.md
+ARCHITECTURE.md
+CHANGELOG.md
+PRD.md
 PLAN-*.md
+docs/
+README.md

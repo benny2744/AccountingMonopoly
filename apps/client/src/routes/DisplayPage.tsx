@@ -5,6 +5,7 @@ import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import Board from "../components/Board.js";
 import Dice, { useDiceRoll } from "../components/Dice.js";
 import Leaderboard from "../components/Leaderboard.js";
+import { latestEvent, latestEventWhere } from "../events.js";
 
 /**
  * Projector / shared display (PRD §20.4, §5.3). Read-only — joins as
@@ -27,7 +28,7 @@ export default function DisplayPage() {
   const lastYearEndId = useRef<string | null>(null);
   const lastRevealId = useRef<string | null>(null);
 
-  const lastCompleted = [...(state?.events ?? [])].reverse().find((e) => e.type === "year_end_completed");
+  const lastCompleted = state ? latestEvent(state.events, "year_end_completed") : undefined;
   useEffect(() => {
     if (!lastCompleted || !state || lastCompleted.id === lastYearEndId.current) return;
     lastYearEndId.current = lastCompleted.id;
@@ -39,9 +40,12 @@ export default function DisplayPage() {
     return () => clearTimeout(t);
   }, [lastCompleted?.id, state]);
 
-  const lastReveal = [...(state?.events ?? [])]
-    .reverse()
-    .find((e) => e.type === "teacher_override" && (e.payload as { action?: string }).action === "reveal_answer");
+  const lastReveal = state
+    ? latestEventWhere(
+        state.events,
+        (e) => e.type === "teacher_override" && (e.payload as { action?: string }).action === "reveal_answer",
+      )
+    : undefined;
   useEffect(() => {
     if (!lastReveal || !state || lastReveal.id === lastRevealId.current) return;
     lastRevealId.current = lastReveal.id;
@@ -69,8 +73,8 @@ export default function DisplayPage() {
   if (loading || !state) return <div className="p-8 text-2xl">Connecting to room {roomCode}…</div>;
 
   const currentTeam = state.teams.find((t) => t.team.id === state.game.currentTeamId) ?? null;
-  const lastRoll = [...state.events].reverse().find((e) => e.type === "roll");
-  const lastCard = [...state.events].reverse().find((e) => e.type === "draw_event_card");
+  const lastRoll = latestEvent(state.events, "roll");
+  const lastCard = latestEvent(state.events, "draw_event_card");
   const showScores = state.game.settings.showScores ?? true;
   const teamsInYearEnd = state.yearEndPendings ?? [];
 

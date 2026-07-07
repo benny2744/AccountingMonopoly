@@ -5,9 +5,10 @@ import { queries, type DeferredSettlementRow, type PendingActionRow } from "../d
 import { logEvent } from "./eventLog.js";
 import { postEntry, postExpectedAsSystem, balanceOf, balancesFor } from "./accountingService.js";
 import { GameError } from "./gameService.js";
+import { beginningCashForYear, linesForIncomeStatement } from "./statementScope.js";
 import { now, uuid } from "../util/ids.js";
 
-const { apPaidCash, apRolledToLoan, prepaidRecognition, calculateAccountBalance } = accounting;
+const { apPaidCash, apRolledToLoan, prepaidRecognition } = accounting;
 
 /**
  * Phase 4 — year-end flow (PRD §14).
@@ -230,24 +231,13 @@ export function resolveYearEndStep(
   return { completed: false };
 }
 
-function beginningCashForYear(teamId: string, year: number): number {
-  const accounts = queries.accountsByTeam(teamId);
-  const cashAcct = accounts.find((a) => a.name === "Cash");
-  if (!cashAcct) return 0;
-  const entries = queries.entriesByTeam(teamId);
-  const priorLines = queries.linesForTeam(teamId).filter((l) => {
-    const entry = entries.find((e) => e.id === l.journalEntryId);
-    return entry != null && entry.year < year;
-  });
-  return calculateAccountBalance(cashAcct, priorLines).balance;
-}
-
 function snapshotStatements(gameId: string, teamId: string, year: number): void {
   const accounts = queries.accountsByTeam(teamId);
   const entries = queries.entriesByTeam(teamId);
   const lines = queries.linesForTeam(teamId);
+  const incomeLines = linesForIncomeStatement(teamId, year);
   const beginning = beginningCashForYear(teamId, year);
-  const income = accounting.generateIncomeStatement(accounts, lines);
+  const income = accounting.generateIncomeStatement(accounts, incomeLines);
   const balanceSheet = accounting.generateBalanceSheet(accounts, lines);
   const cashSummary = accounting.generateCashSummary(accounts, lines, entries, beginning);
   // PRD §25 scoring: netIncome + cash*0.1 − loan*0.1 + cleanBooksBonus.

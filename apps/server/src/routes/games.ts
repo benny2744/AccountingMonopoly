@@ -524,7 +524,17 @@ gamesRouter.get("/:gameId/teams/:teamId/t-accounts", (req, res, next) => {
 
 gamesRouter.get("/:gameId/teams/:teamId/statements", (req, res, next) => {
   try {
-    res.json(statementsView(req.params.teamId));
+    const team = queries.teamsByGame(req.params.gameId).find((t) => t.id === req.params.teamId);
+    if (!team) return res.status(404).json({ error: "not found" });
+    let year = team.currentYear;
+    if (req.query.year != null) {
+      const parsed = Number(req.query.year);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > team.currentYear) {
+        throw new GameError("VALIDATION", `year must be 1..${team.currentYear}`);
+      }
+      year = parsed;
+    }
+    res.json(statementsView(req.params.teamId, year));
   } catch (e) {
     next(e);
   }

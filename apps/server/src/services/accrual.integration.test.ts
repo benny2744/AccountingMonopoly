@@ -9,6 +9,7 @@ import { queries } from "../db/queries.js";
 import { createTeacherSession, createTeamSession, createDisplaySession } from "./sessionsService.js";
 import { roll, resolveChoice, submitJournalEntry, endTurn, takeLoanForPendingFee, revealAnswer } from "./turnService.js";
 import { startYearEnd, resolveYearEndStep, buildYearEndSteps } from "./yearEndService.js";
+import { statementsView } from "./stateService.js";
 import { balanceOf, postExpectedAsSystem } from "./accountingService.js";
 import { accounting } from "@amono/shared";
 
@@ -273,6 +274,33 @@ describe("Phase 4 — accrual mode", () => {
     expect(snap).toBeTruthy();
     const statements = JSON.parse(snap.statements);
     expect(statements.balanceSheet).toBeTruthy();
+  });
+
+  it("statementsView after year-end: year 1 income preserved, year 2 starts clean", () => {
+    const s = makeAccrualGame(2);
+    const teamId = s.teamIds[0]!;
+    postExpectedAsSystem(s.gameId, teamId, "seed-rev", accounting.cashEventRevenue(teamId, 300, "conference"), 1);
+    postExpectedAsSystem(
+      s.gameId,
+      teamId,
+      "seed-exp",
+      accounting.cashEventExpense(teamId, 100, "Event Expense", "utility"),
+      1,
+    );
+
+    startYearEnd(s.gameId, teamId);
+    advanceYearEnd(s.gameId, teamId);
+
+    const team = queries.teamsByGame(s.gameId).find((t) => t.id === teamId)!;
+    expect(team.currentYear).toBe(2);
+
+    const year1 = statementsView(teamId, 1);
+    expect(year1.income.netIncome).toBe(200);
+
+    const year2 = statementsView(teamId, 2);
+    expect(year2.income.netIncome).toBe(0);
+    expect(year2.income.totalRevenue).toBe(0);
+    expect(year2.income.totalExpenses).toBe(0);
   });
 
   it("rolling A/P to loan at year-end: loan absorbs the payable, creditor still collects", () => {

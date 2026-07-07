@@ -1,35 +1,82 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameState } from "../api.js";
+import { latestEvent } from "../events.js";
 
-const ROLL_MS = 1500;
+export const ROLL_MS = 1500;
+export const STEP_MS = 180;
+const ANIM_BUFFER_MS = 200;
+
+/** Spaces moved on the board for a roll (handles wrap past GO). */
+export function rollStepCount(from: number, to: number, boardSize: number): number {
+  return (to - from + boardSize) % boardSize || boardSize;
+}
 
 /**
- * Detects a new `roll` event in the game state and exposes a tumbling flag
- * for ROLL_MS so the <Dice> component can animate before settling on the
- * real values.
+ * Detects a new `roll` event in the game state and exposes tumble + full
+ * animation flags so dice settle before the piece moves and modals open.
  */
 export function useDiceRoll(state: GameState | null): {
   dice: [number, number] | null;
   rolling: boolean;
+  animating: boolean;
   total: number | null;
 } {
   const [dice, setDice] = useState<[number, number] | null>(null);
   const [rolling, setRolling] = useState(false);
+  const [animating, setAnimating] = useState(false);
+  const hydrated = useRef(false);
+  const lastProcessedRollId = useRef<string | null>(null);
 
-  const rollEvent = state ? [...state.events].reverse().find((e) => e.type === "roll") : null;
-  const rollPayload = rollEvent?.payload as { dice: [number, number] } | undefined;
+  const rollEvent = state ? latestEvent(state.events, "roll") : null;
+  const rollPayload = rollEvent?.payload as
+    | { dice: [number, number]; from?: number; to?: number }
+    | undefined;
 
   useEffect(() => {
+    if (!state) return;
+
+    if (!hydrated.current) {
+      hydrated.current = true;
+      if (rollEvent && rollPayload) {
+        lastProcessedRollId.current = rollEvent.id;
+        setDice(rollPayload.dice);
+      }
+      setRolling(false);
+      setAnimating(false);
+      return;
+    }
+
     if (!rollEvent || !rollPayload) return;
+    if (rollEvent.id === lastProcessedRollId.current) return;
+
+    lastProcessedRollId.current = rollEvent.id;
+
+    const boardSize = state.spaces.length ?? 40;
+    const steps =
+      rollPayload.from != null && rollPayload.to != null
+        ? rollStepCount(rollPayload.from, rollPayload.to, boardSize)
+        : rollPayload.dice[0] + rollPayload.dice[1];
+    const totalAnimMs = ROLL_MS + steps * STEP_MS + ANIM_BUFFER_MS;
+
     setRolling(true);
-    const t = setTimeout(() => {
+    setAnimating(true);
+
+    const settleT = setTimeout(() => {
       setDice(rollPayload.dice);
       setRolling(false);
     }, ROLL_MS);
-    return () => clearTimeout(t);
-  }, [rollEvent?.id, rollPayload?.dice?.[0], rollPayload?.dice?.[1]]);
 
-  return { dice, rolling, total: dice ? dice[0] + dice[1] : null };
+    const animEndT = setTimeout(() => {
+      setAnimating(false);
+    }, totalAnimMs);
+
+    return () => {
+      clearTimeout(settleT);
+      clearTimeout(animEndT);
+    };
+  }, [state, rollEvent?.id, rollPayload?.dice?.[0], rollPayload?.dice?.[1], state?.spaces.length]);
+
+  return { dice, rolling, animating, total: dice ? dice[0] + dice[1] : null };
 }
 
 /** Pip positions for each die face in a 3×3 grid (1 = pip shown). */

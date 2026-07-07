@@ -330,8 +330,10 @@ export const api = {
   ledger: (gameId: string, teamId: string) =>
     req<{ accounts: any[]; tAccounts: TAccountRow[]; balances: any[] }>(`/games/${gameId}/teams/${teamId}/ledger`),
 
-  statements: (gameId: string, teamId: string) =>
-    req<StatementsView>(`/games/${gameId}/teams/${teamId}/statements`),
+  statements: (gameId: string, teamId: string, year?: number) =>
+    req<StatementsView>(
+      `/games/${gameId}/teams/${teamId}/statements${year != null ? `?year=${year}` : ""}`,
+    ),
 };
 
 export function saveSession(token: string): void {

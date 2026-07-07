@@ -143,7 +143,7 @@ export default function TeamDashboard() {
               {myYearEnd && myTeam && (
                 <YearEndPanel pending={myYearEnd} state={state} teamId={myTeam.team.id} />
               )}
-              {iShouldJournal && myTeam && state.pending && (
+              {iShouldJournal && myTeam && state.pending && !diceInfo.animating && (
                 <JournalEntryPanel
                   key={state.pending.id}
                   gameId={state.game.id}
@@ -152,13 +152,13 @@ export default function TeamDashboard() {
                   difficulty={state.game.difficulty}
                 />
               )}
-              {isMyTurn && <ActionModal state={state} currentTeam={currentTeam} />}
+              {isMyTurn && !diceInfo.animating && <ActionModal state={state} currentTeam={currentTeam} />}
               {!iShouldJournal && state.pending && state.pending.status === "awaiting_journal" && (
                 <div className="text-sm text-slate-600 italic">
                   {pendingTeamName ?? currentTeam?.team.name} is recording a journal entry…
                 </div>
               )}
-              {isMyTurn && <CardRevealModal pending={state.pending} />}
+              {isMyTurn && !diceInfo.animating && <CardRevealModal pending={state.pending} />}
             </>
           )}
           {tab === "properties" && myTeam && <PropertiesView state={state} teamView={myTeam} />}

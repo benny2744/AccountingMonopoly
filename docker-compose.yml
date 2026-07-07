@@ -8,11 +8,15 @@ services:
     ports:
       - "5000:5000"
     environment:
+      NODE_ENV: production
       PORT: "5000"
       DB_PATH: "/data/game.db"
     volumes:
       # Bind mount: the SQLite file lives in ./data on the host, so it
       # survives container rebuilds and is easy to inspect/backup.
+      # After major upgrades (e.g. classic 40-space board), wipe ./data and
+      # create a fresh teacher room — old in-progress games may have stale
+      # board layouts even though schema columns migrate automatically.
       - ./data:/data
     restart: unless-stopped
     healthcheck:
@@ -20,4 +24,4 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 10s
+      start_period: 15s

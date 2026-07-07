@@ -47,7 +47,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     description: "One of your properties needs urgent repairs. Pay $150.",
     amount: 150,
     kind: "cash_expense",
-    expenseAccount: "Repair Expense",
   },
   {
     id: "cash_charity_event",
@@ -56,7 +55,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     description: "You sponsor a local charity event. Pay $100.",
     amount: 100,
     kind: "cash_expense",
-    expenseAccount: "Charity Expense",
   },
   {
     id: "cash_major_conference",
@@ -73,7 +71,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     description: "Road repairs block access to one of your properties. Pay $120 in operating costs.",
     amount: 120,
     kind: "cash_expense",
-    expenseAccount: "Road Closure Expense",
   },
   {
     id: "cash_neighborhood_promotion",
@@ -83,7 +80,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     amount: 50,
     perTeamAmount: 50,
     kind: "multi_team_pay",
-    expenseAccount: "Event Expense",
   },
   {
     id: "cash_local_festival",
@@ -101,7 +97,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     description: "Pay $80 in utility fees for your properties.",
     amount: 80,
     kind: "cash_expense",
-    expenseAccount: "Event Expense",
   },
   {
     id: "cash_cleaning_fee",
@@ -110,7 +105,6 @@ export const CASH_EVENT_DECK: readonly EventCardBase[] = [
     description: "Pay $60 to clean one of your rental properties.",
     amount: 60,
     kind: "cash_expense",
-    expenseAccount: "Repair Expense",
   },
   {
     id: "cash_investor_contribution",
@@ -140,7 +134,6 @@ export const ACCRUAL_EVENT_DECK: readonly EventCardBase[] = [
     description: "One of your properties needs urgent repairs. The contractor sends a $150 bill due at year-end.",
     amount: 150,
     kind: "accrual_expense_payable",
-    expenseAccount: "Repair Expense",
   },
   {
     id: "accrual_internet_plan",
@@ -167,7 +160,6 @@ export const ACCRUAL_EVENT_DECK: readonly EventCardBase[] = [
     description: "You promise to donate $100 to a charity event. Payment is due at year-end.",
     amount: 100,
     kind: "accrual_expense_payable",
-    expenseAccount: "Charity Expense",
   },
   {
     id: "accrual_road_closure_fee",
@@ -176,7 +168,6 @@ export const ACCRUAL_EVENT_DECK: readonly EventCardBase[] = [
     description: "Emergency road repairs affect one of your properties. You owe $120 in road access fees, due at year-end.",
     amount: 120,
     kind: "accrual_expense_payable",
-    expenseAccount: "Road Closure Expense",
   },
   {
     id: "accrual_player_rent_credit",
