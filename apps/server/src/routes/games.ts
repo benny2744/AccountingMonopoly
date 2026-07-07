@@ -4,7 +4,7 @@ import { z } from "zod";
 import { networkInterfaces } from "node:os";
 import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn, addTeam, removeTeam } from "../services/gameService.js";
 import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee, buildHouse } from "../services/turnService.js";
-import { getGameState, ledgerView, statementsView } from "../services/stateService.js";
+import { getGameState, ledgerView, statementsView, type GameState } from "../services/stateService.js";
 import { startYearEnd, resolveYearEndStep } from "../services/yearEndService.js";
 import { AccountingError } from "../services/accountingService.js";
 import { queries } from "../db/queries.js";
@@ -29,10 +29,17 @@ import { withGameLock } from "../services/gameLock.js";
 export const gamesRouter: RouterType = Router();
 
 /** Broadcast helper injected from index.ts so routes can fan out state updates. */
-type BroadcastFn = (gameId: string) => void;
-function broadcast(req: Request, gameId: string): void {
+type BroadcastFn = (gameId: string, state: GameState) => void;
+function broadcast(req: Request, gameId: string, state: GameState): void {
   const fn = req.app.get("broadcastState") as BroadcastFn | undefined;
-  if (fn) fn(gameId);
+  if (fn) fn(gameId, state);
+}
+
+/** Build one snapshot and broadcast it (avoids double getGameState per mutation). */
+function publishState(req: Request, gameId: string): GameState {
+  const state = getGameState(gameId);
+  broadcast(req, gameId, state);
+  return state;
 }
 
 const createGameSchema = z.object({
@@ -114,7 +121,7 @@ gamesRouter.post("/:gameId/join", (req, res, next) => {
   try {
     const { teamId, displayName } = teamJoinSchema.parse(req.body);
     const session = createTeamSession(req.params.gameId, teamId, displayName);
-    broadcast(req, req.params.gameId);
+    publishState(req, req.params.gameId);
     res.json({ sessionToken: session.token, gameId: session.gameId, teamId });
   } catch (e) {
     next(e);
@@ -176,8 +183,8 @@ gamesRouter.post("/:gameId/start", async (req, res, next) => {
     const game = await withGameLock(req.params.gameId, () =>
       startGame(req.params.gameId, teacherPin, { overrideMinTeams: override }),
     );
-    broadcast(req, game.id);
-    res.json(getGameState(game.id));
+    const state = publishState(req, game.id);
+    res.json(state);
   } catch (e) {
     next(e);
   }
@@ -188,8 +195,8 @@ gamesRouter.post("/:gameId/roll", async (req, res, next) => {
     const { teamId } = z.object({ teamId: z.string() }).parse(req.body);
     requireTeamSession(req.header("Authorization"), req.params.gameId, teamId);
     const result = await withGameLock(req.params.gameId, () => roll(req.params.gameId, teamId));
-    broadcast(req, req.params.gameId);
-    res.json({ result, state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ result, state });
   } catch (e) {
     next(e);
   }
@@ -205,8 +212,8 @@ gamesRouter.post("/:gameId/resolve-event", async (req, res, next) => {
     const input = resolveSchema.parse(req.body);
     requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
     await withGameLock(req.params.gameId, () => resolveChoice(req.params.gameId, input.teamId, input));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -225,8 +232,8 @@ gamesRouter.post("/:gameId/submit-journal-entry", async (req, res, next) => {
     const result = await withGameLock(req.params.gameId, () =>
       submitJournalEntry(req.params.gameId, input.teamId, input),
     );
-    broadcast(req, req.params.gameId);
-    res.json({ result, state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ result, state });
   } catch (e) {
     next(e);
   }
@@ -237,8 +244,8 @@ gamesRouter.post("/:gameId/build-house", async (req, res, next) => {
     const input = z.object({ teamId: z.string(), propertyId: z.string() }).parse(req.body);
     requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
     await withGameLock(req.params.gameId, () => buildHouse(req.params.gameId, input.teamId, input.propertyId));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -248,8 +255,8 @@ gamesRouter.post("/:gameId/end-turn", async (req, res, next) => {
   try {
     requireEndTurnSession(req.header("Authorization"), req.params.gameId);
     const game = await withGameLock(req.params.gameId, () => endTurn(req.params.gameId));
-    broadcast(req, game.id);
-    res.json({ state: getGameState(game.id) });
+    const state = publishState(req, game.id);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -260,8 +267,8 @@ gamesRouter.post("/:gameId/pause", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const game = await withGameLock(req.params.gameId, () => pauseGame(req.params.gameId));
-    broadcast(req, game.id);
-    res.json(getGameState(game.id));
+    const state = publishState(req, game.id);
+    res.json(state);
   } catch (e) {
     next(e);
   }
@@ -270,8 +277,8 @@ gamesRouter.post("/:gameId/resume", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const game = await withGameLock(req.params.gameId, () => resumeGame(req.params.gameId));
-    broadcast(req, game.id);
-    res.json(getGameState(game.id));
+    const state = publishState(req, game.id);
+    res.json(state);
   } catch (e) {
     next(e);
   }
@@ -280,8 +287,8 @@ gamesRouter.post("/:gameId/force-next-turn", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const game = await withGameLock(req.params.gameId, () => forceNextTurn(req.params.gameId));
-    broadcast(req, game.id);
-    res.json(getGameState(game.id));
+    const state = publishState(req, game.id);
+    res.json(state);
   } catch (e) {
     next(e);
   }
@@ -290,8 +297,8 @@ gamesRouter.post("/:gameId/reveal-answer", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     await withGameLock(req.params.gameId, () => revealAnswer(req.params.gameId));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -302,7 +309,7 @@ gamesRouter.post("/:gameId/teams", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const team = await withGameLock(req.params.gameId, () => addTeam(req.params.gameId));
-    broadcast(req, req.params.gameId);
+    publishState(req, req.params.gameId);
     res.status(201).json({ team });
   } catch (e) {
     next(e);
@@ -313,7 +320,7 @@ gamesRouter.delete("/:gameId/teams/:teamId", async (req, res, next) => {
   try {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     await withGameLock(req.params.gameId, () => removeTeam(req.params.gameId, req.params.teamId));
-    broadcast(req, req.params.gameId);
+    publishState(req, req.params.gameId);
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -328,8 +335,8 @@ gamesRouter.post("/:gameId/loan-for-fee", async (req, res, next) => {
     const { teamId, amount } = loanForFeeSchema.parse(req.body);
     requireTeamSession(req.header("Authorization"), req.params.gameId, teamId);
     await withGameLock(req.params.gameId, () => takeLoanForPendingFee(req.params.gameId, teamId, amount));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -341,8 +348,8 @@ gamesRouter.post("/:gameId/year-end/start", async (req, res, next) => {
     const { teamId } = yearEndStartSchema.parse(req.body);
     requireSelfTeamOrTeacher(req.header("Authorization"), req.params.gameId, teamId);
     await withGameLock(req.params.gameId, () => startYearEnd(req.params.gameId, teamId));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -357,8 +364,8 @@ gamesRouter.post("/:gameId/year-end/resolve-step", async (req, res, next) => {
     const { teamId, choice } = yearEndStepSchema.parse(req.body);
     requireYearEndResolveSession(req.header("Authorization"), req.params.gameId, teamId);
     await withGameLock(req.params.gameId, () => resolveYearEndStep(req.params.gameId, teamId, choice));
-    broadcast(req, req.params.gameId);
-    res.json({ state: getGameState(req.params.gameId) });
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
   } catch (e) {
     next(e);
   }
@@ -381,8 +388,8 @@ gamesRouter.post("/:gameId/credit-limit", async (req, res, next) => {
         newLimit: creditLimit,
       });
     });
-    broadcast(req, req.params.gameId);
-    res.json(getGameState(req.params.gameId));
+    const state = publishState(req, req.params.gameId);
+    res.json(state);
   } catch (e) {
     next(e);
   }
@@ -421,7 +428,7 @@ gamesRouter.post("/:gameId/hint", (req, res, next) => {
     const effectiveLevel = level === 4 && !allowFull ? 3 : level;
     const text = accounting.getHint(expected, effectiveLevel as 1 | 2 | 3 | 4);
     const hintsUsed = queries.incPendingHints(pending.id);
-    broadcast(req, req.params.gameId);
+    publishState(req, req.params.gameId);
     res.json({ level: effectiveLevel, text, hintsUsed, gated: level === 4 && !allowFull });
   } catch (e) {
     next(e);
@@ -434,8 +441,8 @@ gamesRouter.post("/:gameId/end", async (req, res, next) => {
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const { endGame } = await import("../services/gameService.js");
     const game = await withGameLock(req.params.gameId, () => endGame(req.params.gameId));
-    broadcast(req, req.params.gameId);
-    res.json(getGameState(game.id));
+    const state = publishState(req, req.params.gameId);
+    res.json(state);
   } catch (e) {
     next(e);
   }

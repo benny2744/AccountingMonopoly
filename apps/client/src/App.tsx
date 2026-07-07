@@ -7,6 +7,7 @@ import LobbyPage from "./routes/LobbyPage.js";
 import TeamDashboard from "./routes/TeamDashboard.js";
 import TeacherDashboard from "./routes/TeacherDashboard.js";
 import DisplayPage from "./routes/DisplayPage.js";
+import TeacherGamesPage from "./routes/TeacherGamesPage.js";
 import GameErrorToast from "./components/GameErrorToast.js";
 import ConnectionBanner from "./components/ConnectionBanner.js";
 
@@ -17,6 +18,7 @@ export default function App() {
       <GameErrorToast />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/games" element={<TeacherGamesPage />} />
         <Route path="/create" element={<CreateRoomPage />} />
         <Route path="/join" element={<JoinPage />} />
         <Route path="/join/:code" element={<JoinPage />} />

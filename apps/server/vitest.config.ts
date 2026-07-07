@@ -6,6 +6,9 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     hookTimeout: 30000,
+    // Integration tests share openDb() singleton state; run files sequentially.
+    fileParallelism: false,
+    sequence: { concurrent: false },
   },
   resolve: {
     alias: {

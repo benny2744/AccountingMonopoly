@@ -47,7 +47,7 @@ export default function JoinPage() {
         teamId,
         displayName || undefined,
       );
-      saveSession(sessionToken);
+      saveSession(sessionToken, gameId);
       attachSession({
         token: sessionToken,
         gameId,
@@ -68,7 +68,7 @@ export default function JoinPage() {
     setError(null);
     try {
       const { sessionToken, gameId } = await api.joinDisplay(room.gameId);
-      saveSession(sessionToken);
+      saveSession(sessionToken, gameId);
       attachSession({
         token: sessionToken,
         gameId,

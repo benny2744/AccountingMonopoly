@@ -136,6 +136,9 @@ the schema on next start.
   each team and on the teacher dashboard.
 - **Multi-tab fix**: each browser tab keeps its own session token so teacher +
   team testing in one browser no longer breaks roll dice.
+- **Multi-game teacher workflow**: open **My Games** (`/games`) to monitor up
+  to ~8 concurrent rooms from one browser tab; session tokens are stored per
+  game so you can jump between dashboards without losing access.
 
 ## Known limitations (out of scope for MVP, PRD §4.4)
 

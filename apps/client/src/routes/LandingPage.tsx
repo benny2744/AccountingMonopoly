@@ -10,6 +10,9 @@ export default function LandingPage() {
         <h1 className="text-3xl font-bold text-slate-800 mb-2">{t("app.title")}</h1>
         <p className="text-slate-500 mb-8">{t("app.subtitle")}</p>
         <div className="flex flex-col gap-3">
+          <Link to="/games" className="bg-slate-800 text-white py-3 rounded-lg font-semibold hover:bg-slate-900">
+            {t("landingPage.myGames")}
+          </Link>
           <Link to="/create" className="bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700">
             {t("landingPage.createRoom")}
           </Link>

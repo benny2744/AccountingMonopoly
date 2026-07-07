@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, saveSession } from "../api.js";
+import { addTeacherRoom } from "../teacherRooms.js";
 import { useGameStore } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import { useTranslation } from "../i18n/useTranslation.js";
@@ -16,6 +17,7 @@ import Leaderboard from "../components/Leaderboard.js";
 import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
 import PropertiesView from "../components/PropertiesView.js";
+import { stuckInfo } from "../utils/stuckTeam.js";
 import type { TeamView } from "../api.js";
 
 type Tab = "overview" | "properties" | "taccounts" | "statements";
@@ -60,6 +62,9 @@ export default function TeacherDashboard() {
     <div className="min-h-screen p-4">
       <header className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
+          <Link to="/games" className="text-sm text-indigo-600 hover:text-indigo-800 font-medium mb-1 inline-block">
+            ← {t("teacherDashboard.myGames")}
+          </Link>
           <h1 className="text-xl font-bold">{t("teacherDashboard.title")}</h1>
           <div className="text-sm text-slate-500">
             {t("teacherDashboard.room")} <span className="font-mono font-semibold">{state.game.roomCode}</span> ·{" "}
@@ -123,7 +128,8 @@ export default function TeacherDashboard() {
                 const pin = prompt(t("teacherDashboard.clonePinPrompt"), "1234");
                 if (pin) ctl(async () => {
                   const { game, sessionToken } = await api.cloneGame(state.game.id, pin);
-                  saveSession(sessionToken);
+                  saveSession(sessionToken, game.id);
+                  addTeacherRoom({ roomCode: game.roomCode, gameId: game.id, label: game.roomCode });
                   window.location.href = `/lobby/${game.roomCode}`;
                 });
               }}
@@ -239,23 +245,6 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
       </table>
     </div>
   );
-}
-
-/** Stuck-team detection (PRD §28.2): how long has the current pending action been open? */
-function stuckInfo(
-  state: import("../api.js").GameState,
-  teamId: string,
-): { minutes: number; severity: "low" | "high"; label: string } | null {
-  const p = state.pending;
-  if (!p || p.teamId !== teamId || !p.createdAt) return null;
-  const ms = Date.now() - new Date(p.createdAt).getTime();
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 1) return null;
-  return {
-    minutes,
-    severity: minutes >= 3 ? "high" : "low",
-    label: t("teacherDashboard.stuckLabel", { kind: p.kind, minutes }),
-  };
 }
 
 function TeamPicker({

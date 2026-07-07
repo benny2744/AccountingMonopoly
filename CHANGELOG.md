@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Scale optimizations for ~8 concurrent games**: single `getGameState` build per
+  mutation (response + broadcast share one snapshot), SQLite `game_id` indexes,
+  batched per-game balance queries, batched journal line reads for ledger views,
+  and `PRAGMA synchronous = NORMAL` with WAL.
+- **Teacher multi-game overview** (`/games`): monitor multiple room cards with
+  stuck-team badges, add existing rooms via teacher PIN, per-game session tokens
+  in `localStorage`, and one-click jumps to each dashboard.
 - **Full i18n support** (English + Simplified Chinese): typed dictionary in
   `packages/shared/src/i18n`, language toggle in the client header, default
   locale `zh-CN` persisted to `localStorage`, and helper functions for team names,

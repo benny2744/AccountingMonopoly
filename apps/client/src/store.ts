@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { io, type Socket } from "socket.io-client";
-import { api, clearSession, getStoredSessionToken, type GameState, type SessionInfo } from "./api.js";
+import { api, clearSession, getStoredSessionToken, setActiveGameId, type GameState, type SessionInfo } from "./api.js";
 
 export interface SocketError {
   code: string;
@@ -48,6 +48,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   attachSession: (session) => set({ session }),
 
   connect: async (gameId) => {
+    setActiveGameId(gameId);
     set({ gameId, loading: true, error: null });
     const token = getStoredSessionToken();
     if (token) {

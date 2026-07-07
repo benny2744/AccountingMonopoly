@@ -2,7 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import { Server, type Socket } from "socket.io";
 import { z } from "zod";
 import { queries } from "./db/queries.js";
-import { getGameState } from "./services/stateService.js";
+import { getGameState, type GameState } from "./services/stateService.js";
 import {
   getSession,
   assertEndTurnSession,
@@ -26,8 +26,8 @@ import { withGameLock } from "./services/gameLock.js";
 
 export interface SocketServer {
   io: Server;
-  /** Broadcast the current game snapshot to everyone in the room. */
-  broadcastState: (gameId: string) => void;
+  /** Broadcast a game snapshot to everyone in the room (builds one if omitted). */
+  broadcastState: (gameId: string, state?: GameState) => void;
 }
 
 export function createSocketServer(httpServer: HttpServer): SocketServer {
@@ -177,10 +177,10 @@ export function createSocketServer(httpServer: HttpServer): SocketServer {
     );
   });
 
-  function broadcastState(gameId: string): void {
+  function broadcastState(gameId: string, state?: GameState): void {
     const game = queries.gameById(gameId);
     if (!game) return;
-    io.to(`room:${game.roomCode}`).emit("game:state_updated", getGameState(gameId));
+    io.to(`room:${game.roomCode}`).emit("game:state_updated", state ?? getGameState(gameId));
   }
 
   return { io, broadcastState };

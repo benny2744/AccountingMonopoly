@@ -77,7 +77,8 @@ Example: if the host is `10.0.5.137`:
 
 ## Running a class session
 
-1. **Teacher** opens the host URL in a browser and clicks **Create Teacher Room**.
+1. **Teacher** opens the host URL in a browser and clicks **My Games** or
+   **Create Teacher Room**.
 2. Fill in room name, teacher PIN, difficulty (Cash or Accrual), number of
    teams, property allocation, starting cash, and credit limit.
 3. The lobby shows a **room code** and a copyable **join URL**. Share the URL
@@ -93,9 +94,15 @@ Example: if the host is `10.0.5.137`:
 7. Teacher can pause/resume, force the next turn, reveal the correct entry
    (with confirmation), override mistakes, end the game, clone settings for a
    new room, and trigger year-end from the teacher dashboard.
-8. Open the **Display** URL on the projector for the shared board, leaderboard,
+8. To run **multiple concurrent rooms** on one server (e.g. several class
+   sections), use **My Games** (`/games`): each created or joined room appears
+   as a card with live status and stuck-team badges. Click **Open dashboard**
+   to jump into that room; use **← My games** on the dashboard to switch back.
+   Per-game session tokens are saved in the browser so one tab can manage
+   several rooms without re-entering PINs.
+9. Open the **Display** URL on the projector for the shared board, leaderboard,
    and celebration banners.
-9. At the end, use **Export** to download the game summary as JSON or CSV.
+10. At the end, use **Export** to download the game summary as JSON or CSV.
    On the **Statements** tab, students review closed-year income after
    year-end — the view defaults to the last closed year; use the year
    selector (when `currentYear > 1`) to switch to the current year or prior
@@ -127,9 +134,10 @@ cp data/<file>.db data/backup-$(date +%Y%m%d-%H%M).db
   5000 is open in both directions and that the school network allows
   device-to-device traffic. Some "client isolation" Wi-Fi setups block this —
   disable client isolation for the classroom SSID if needed.
-- For very large classes, one server process handles a single room well; if you
-  need multiple concurrent rooms, run additional server instances on different
-  ports.
+- For very large classes, one server process handles multiple concurrent rooms
+  well (up to ~8 at classroom pace). Use **My Games** on the teacher browser
+  to monitor them; no need for separate server instances unless you exceed that
+  scale.
 
 ## Updating the app
 

@@ -2,7 +2,7 @@ import type { Account, BoardSpace, CreditBalance, Game, GameEvent, JournalEntryL
 import { accounting } from "@amono/shared";
 import { queries } from "../db/queries.js";
 import { getDb } from "../db/client.js";
-import { balancesFor } from "./accountingService.js";
+import { balancesFromLines } from "./accountingService.js";
 import { GameError } from "./gameService.js";
 import {
   beginningCashForYear,
@@ -42,9 +42,19 @@ export function getGameState(gameId: string): GameState {
   const teams = queries.teamsByGame(gameId);
   const props = queries.propertiesByGame(gameId);
   const cbs = queries.creditBalancesByGame(gameId);
+  const gameAccounts = queries.accountsByGame(gameId);
+  const linesByTeam = queries.linesByTeamForGame(gameId);
+  const accountsByTeamId = new Map<string, Account[]>();
+  for (const acct of gameAccounts) {
+    const list = accountsByTeamId.get(acct.teamId) ?? [];
+    list.push(acct);
+    accountsByTeamId.set(acct.teamId, list);
+  }
 
   const teamViews: TeamView[] = teams.map((t) => {
-    const bal = balancesFor(t.id);
+    const accounts = accountsByTeamId.get(t.id) ?? [];
+    const lines = linesByTeam.get(t.id) ?? [];
+    const bal = balancesFromLines(accounts, lines);
     return {
       team: t,
       cash: bal.get("Cash") ?? 0,

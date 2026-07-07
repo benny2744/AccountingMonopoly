@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, saveSession } from "../api.js";
+import { addTeacherRoom } from "../teacherRooms.js";
 import { useTranslation } from "../i18n/useTranslation.js";
 import { LanguageToggle } from "../i18n/LanguageToggle.js";
 import { getDifficultyLabel } from "@amono/shared/i18n";
@@ -36,7 +37,8 @@ export default function CreateRoomPage() {
         startingCash,
         startingLoanLimit,
       });
-      saveSession(sessionToken);
+      saveSession(sessionToken, game.id);
+      addTeacherRoom({ roomCode: game.roomCode, gameId: game.id, label: game.roomCode });
       navigate(`/lobby/${game.roomCode}`);
     } catch (e) {
       setError((e as Error).message);

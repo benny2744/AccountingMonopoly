@@ -52,7 +52,7 @@ function client(token: string): ClientSocket {
   return ioc(`http://127.0.0.1:${port}`, { path: "/socket.io", auth: { token }, autoConnect: false });
 }
 
-function once<T = unknown>(sock: ClientSocket, event: string, timeout = 1500): Promise<T> {
+function once<T = unknown>(sock: ClientSocket, event: string, timeout = 5000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`timeout waiting for ${event}`)), timeout);
     sock.once(event, (v: T) => {
@@ -88,15 +88,17 @@ async function setupGameAndConnect(numTeams = 3): Promise<Setup> {
     teams.map(async (t) => {
       const s = createTeamSession(game.id, t.id, `student-${t.name}`);
       const sock = client(s.token);
+      const stateP = once(sock, "game:state_updated");
       sock.connect();
-      await once(sock, "game:state_updated");
+      await stateP;
       return { id: t.id, token: s.token, sock };
     }),
   );
   const teacherSession = createTeacherSession(game.id, "1234");
   const teacher = client(teacherSession.token);
+  const teacherStateP = once(teacher, "game:state_updated");
   teacher.connect();
-  await once(teacher, "game:state_updated");
+  await teacherStateP;
   return { gameId: game.id, roomCode: game.roomCode, teacher, teams: teamEntries };
 }
 
@@ -203,8 +205,9 @@ describe("socket multiplayer (Phase 3)", () => {
     current.sock.disconnect();
 
     const sock2 = client(token);
+    const restoredP = once(sock2, "game:state_updated");
     sock2.connect();
-    const restored = (await once(sock2, "game:state_updated")) as any;
+    const restored = (await restoredP) as any;
     expect(restored.pending?.kind).toBe("buy_or_skip");
     expect(restored.pending?.status).toBe("awaiting_choice");
     sock2.disconnect();
@@ -258,8 +261,9 @@ describe("socket multiplayer (Phase 3)", () => {
 
     const displaySession = createDisplaySession(s.gameId);
     const displaySock = client(displaySession.token);
+    const displayStateP = once(displaySock, "game:state_updated");
     displaySock.connect();
-    await once(displaySock, "game:state_updated");
+    await displayStateP;
     const displayAck = await emitAck(displaySock, "request_end_turn");
     expect(displayAck.ok).toBe(false);
     displaySock.disconnect();
@@ -275,6 +279,7 @@ describe("socket multiplayer (Phase 3)", () => {
     const current = s.teams.find((t) => t.id === state.currentTeamId)!;
     const currentAck = await emitAck(current.sock, "request_end_turn");
     expect(currentAck.ok).toBe(true);
+    await closeAll(s);
 
     const s2 = await setupGameAndConnect(2);
     await advanceToAwaitingEnd(s2);
@@ -290,8 +295,9 @@ describe("socket multiplayer (Phase 3)", () => {
 
     const displaySession = createDisplaySession(s.gameId);
     const displaySock = client(displaySession.token);
+    const displayStateP = once(displaySock, "game:state_updated");
     displaySock.connect();
-    await once(displaySock, "game:state_updated");
+    await displayStateP;
     const displayAck = await emitAck(displaySock, "request_roll");
     expect(displayAck.ok).toBe(false);
     displaySock.disconnect();

@@ -11,6 +11,7 @@ export function openDb(path = "data/game.db"): SqliteDatabase {
   mkdirSync(dirname(path), { recursive: true });
   const database = new DatabaseSync(path);
   database.exec("PRAGMA journal_mode = WAL;");
+  database.exec("PRAGMA synchronous = NORMAL;");
   database.exec("PRAGMA foreign_keys = ON;");
   db = database;
   return database;

@@ -183,6 +183,14 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_journal_entries_team ON journal_entries(team_id);
     CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_entry ON journal_entry_lines(journal_entry_id);
   `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_teams_game ON teams(game_id);
+    CREATE INDEX IF NOT EXISTS idx_properties_game ON properties(game_id);
+    CREATE INDEX IF NOT EXISTS idx_board_spaces_game ON board_spaces(game_id);
+    CREATE INDEX IF NOT EXISTS idx_pending_actions_game_status ON pending_actions(game_id, status);
+    CREATE INDEX IF NOT EXISTS idx_credit_balances_game ON credit_balances(game_id);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_game ON journal_entries(game_id);
+  `);
   // Backfill turn_phase for databases created before this column existed.
   try {
     db.exec(`ALTER TABLE games ADD COLUMN turn_phase TEXT NOT NULL DEFAULT 'awaiting_roll'`);

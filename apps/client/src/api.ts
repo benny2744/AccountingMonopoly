@@ -137,9 +137,45 @@ export interface StatementsView {
 }
 
 const SESSION_KEY = "amono.sessionToken";
+const SESSIONS_MAP_KEY = "amono.sessions";
+const ACTIVE_GAME_KEY = "amono.activeGameId";
 const LEGACY_SESSION_KEY = "amono.sessionToken";
 
+let activeGameId: string | null = null;
+
+function readSessionMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SESSIONS_MAP_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSessionMap(map: Record<string, string>): void {
+  localStorage.setItem(SESSIONS_MAP_KEY, JSON.stringify(map));
+}
+
+/** Set which game's session token REST/socket calls should use. */
+export function setActiveGameId(gameId: string | null): void {
+  activeGameId = gameId;
+  if (gameId) localStorage.setItem(ACTIVE_GAME_KEY, gameId);
+  else localStorage.removeItem(ACTIVE_GAME_KEY);
+  const token = gameId ? readSessionMap()[gameId] : null;
+  if (token) sessionStorage.setItem(SESSION_KEY, token);
+  else sessionStorage.removeItem(SESSION_KEY);
+}
+
+export function getActiveGameId(): string | null {
+  return activeGameId ?? localStorage.getItem(ACTIVE_GAME_KEY);
+}
+
 function getSessionToken(): string | null {
+  const gid = getActiveGameId();
+  if (gid) {
+    const fromMap = readSessionMap()[gid];
+    if (fromMap) return fromMap;
+  }
   return sessionStorage.getItem(SESSION_KEY) ?? localStorage.getItem(LEGACY_SESSION_KEY);
 }
 
@@ -343,11 +379,25 @@ export const api = {
     ),
 };
 
-export function saveSession(token: string): void {
-  sessionStorage.setItem(SESSION_KEY, token);
+export function saveSession(token: string, gameId?: string): void {
+  const gid = gameId ?? getActiveGameId();
+  if (gid) {
+    const map = readSessionMap();
+    map[gid] = token;
+    writeSessionMap(map);
+    setActiveGameId(gid);
+  } else {
+    sessionStorage.setItem(SESSION_KEY, token);
+  }
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
-export function clearSession(): void {
+export function clearSession(gameId?: string): void {
+  const gid = gameId ?? getActiveGameId();
+  if (gid) {
+    const map = readSessionMap();
+    delete map[gid];
+    writeSessionMap(map);
+  }
   sessionStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }

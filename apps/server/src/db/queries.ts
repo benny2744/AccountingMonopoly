@@ -394,7 +394,36 @@ export const queries = {
   },
   entriesByTeam(teamId: string): JournalEntry[] {
     const rows = getDb().prepare("SELECT * FROM journal_entries WHERE team_id = ? ORDER BY created_at").all(teamId) as JERow[];
-    return rows.map((r) => rowToJE(r, this.linesForEntry(r.id)));
+    if (rows.length === 0) return [];
+    const placeholders = rows.map(() => "?").join(",");
+    const lineRows = getDb()
+      .prepare(`SELECT * FROM journal_entry_lines WHERE journal_entry_id IN (${placeholders})`)
+      .all(...rows.map((r) => r.id)) as LineRow[];
+    const linesByEntry = new Map<string, JournalEntryLine[]>();
+    for (const lr of lineRows) {
+      const list = linesByEntry.get(lr.journal_entry_id) ?? [];
+      list.push(rowToLine(lr));
+      linesByEntry.set(lr.journal_entry_id, list);
+    }
+    return rows.map((r) => rowToJE(r, linesByEntry.get(r.id) ?? []));
+  },
+  /** All journal lines for a game, grouped by team id (one query). */
+  linesByTeamForGame(gameId: string): Map<string, JournalEntryLine[]> {
+    const rows = getDb()
+      .prepare(
+        `SELECT l.*, e.team_id AS team_id FROM journal_entry_lines l
+         JOIN journal_entries e ON e.id = l.journal_entry_id
+         WHERE e.game_id = ?`,
+      )
+      .all(gameId) as (LineRow & { team_id: string })[];
+    const map = new Map<string, JournalEntryLine[]>();
+    for (const row of rows) {
+      const { team_id, ...lineRow } = row;
+      const list = map.get(team_id) ?? [];
+      list.push(rowToLine(lineRow as LineRow));
+      map.set(team_id, list);
+    }
+    return map;
   },
   linesForTeam(teamId: string): JournalEntryLine[] {
     const rows = getDb()

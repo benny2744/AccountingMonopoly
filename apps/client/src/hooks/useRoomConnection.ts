@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, useGameStore } from "../store.js";
+import { api, setActiveGameId } from "../api.js";
+import { useGameStore } from "../store.js";
 
 export type RoomRole = "teacher" | "team" | "display";
 
@@ -30,6 +31,7 @@ export function useRoomConnection(
       try {
         const room = await api.lookupRoom(roomCode);
         if (cancelled) return;
+        setActiveGameId(room.gameId);
         await connect(room.gameId);
       } catch (e) {
         setError((e as Error).message);

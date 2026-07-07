@@ -128,6 +128,14 @@ export function postExpectedAsSystem(
 export function balancesFor(teamId: string): Map<string, number> {
   const accounts = queries.accountsByTeam(teamId);
   const lines = queries.linesForTeam(teamId);
+  return balancesFromLines(accounts, lines);
+}
+
+/** Compute balances from pre-loaded accounts and lines (no I/O). */
+export function balancesFromLines(
+  accounts: readonly Account[],
+  lines: readonly JournalEntryLine[],
+): Map<string, number> {
   const m = new Map<string, number>();
   for (const a of accounts) {
     m.set(a.name, calculateAccountBalance(a, lines).balance);
