@@ -117,11 +117,13 @@ the schema on next start.
   journal panel.
 - **Animated dice + piece movement**: tumbling 2D dice (~1.5s spin with face
   cycling) and step-through token animation that begins once the dice settles.
-  Card, tax, and rent popups wait until dice + movement finish (hydrate guards
-  prevent replay when switching tabs back to the board).
+  The current-tile highlight and token dots move with the piece (not the
+  server destination). Card, tax, and rent popups wait until dice + movement
+  finish (hydrate guards prevent replay when switching tabs back to the board).
 - **Year-scoped financial statements**: income statement and cash summary are
-  filtered by fiscal year (defaults to the current year; year selector when
-  `currentYear > 1` so closed years stay visible after year-end closing).
+  filtered by fiscal year. After year-end, the Statements tab defaults to the
+  last closed year (not the empty new year); a year selector appears when
+  `currentYear > 1`.
 - **Two-sided journaling**: when a team pays rent (or settles a multi-team
   event card), the **receiving team** also records their own journal entry
   before the turn advances — no silent auto-posts. Teacher **Reveal Answer**

@@ -27,7 +27,15 @@ export default function Board({
   const placed = placePerimeter(state.spaces);
   const positionMap = usePositionMap(state.spaces);
   const gridRef = useRef<HTMLDivElement>(null);
-  const [animatingTeams, setAnimatingTeams] = useState<Record<string, { row: number; col: number }>>({});
+  const [animatingTeams, setAnimatingTeams] = useState<Record<string, number>>({});
+
+  const displayPositions = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const t of state.teams) {
+      map[t.team.id] = animatingTeams[t.team.id] ?? t.team.position;
+    }
+    return map;
+  }, [state.teams, animatingTeams]);
 
   const latestRoll = latestEvent(state.events, "roll");
   const latestRollId = latestRoll?.id ?? null;
@@ -59,8 +67,8 @@ export default function Board({
       dice: [number, number];
       total: number;
     };
-    setAnimatingTeams((prev) => ({ ...prev, [teamId]: positionMap[from] ?? { row: 1, col: 1 } }));
-  }, [latestRollId, positionMap]);
+    setAnimatingTeams((prev) => ({ ...prev, [teamId]: from }));
+  }, [latestRollId]);
 
   // Step the token once the dice has settled.
   useEffect(() => {
@@ -80,19 +88,20 @@ export default function Board({
     const moving = state.teams.find((t) => t.team.id === teamId);
     if (!moving) return;
 
-    const targets: { row: number; col: number }[] = [];
-    const steps = (to - from + state.spaces.length) % state.spaces.length || state.spaces.length;
+    const boardLen = state.spaces.length;
+    const steps = (to - from + boardLen) % boardLen || boardLen;
+    const targetIndices: number[] = [];
     for (let i = 1; i <= steps; i++) {
-      targets.push(positionMap[(from + i) % state.spaces.length] ?? { row: 1, col: 1 });
+      targetIndices.push((from + i) % boardLen);
     }
-    if (targets.length === 0) return;
+    if (targetIndices.length === 0) return;
 
-    setAnimatingTeams((prev) => ({ ...prev, [teamId]: positionMap[from] ?? { row: 1, col: 1 } }));
+    setAnimatingTeams((prev) => ({ ...prev, [teamId]: from }));
 
     const timers: ReturnType<typeof setTimeout>[] = [];
-    targets.forEach((pos, i) => {
+    targetIndices.forEach((spaceIndex, i) => {
       timers.push(setTimeout(() => {
-        setAnimatingTeams((prev) => ({ ...prev, [teamId]: pos }));
+        setAnimatingTeams((prev) => ({ ...prev, [teamId]: spaceIndex }));
       }, (i + 1) * STEP_MS));
     });
 
@@ -102,7 +111,7 @@ export default function Board({
         delete next[teamId];
         return next;
       });
-    }, (targets.length + 1) * STEP_MS);
+    }, (targetIndices.length + 1) * STEP_MS);
     timers.push(endTimeout);
 
     return () => {
@@ -124,10 +133,17 @@ export default function Board({
         }}
       >
         {placed.map((p) => (
-          <SpaceCell key={p.space.index} space={p.space} state={state} row={p.row} col={p.col} />
+          <SpaceCell
+            key={p.space.index}
+            space={p.space}
+            state={state}
+            row={p.row}
+            col={p.col}
+            displayPositions={displayPositions}
+          />
         ))}
         <Center state={state} dice={dice ?? null} rolling={isRolling} controls={controls} />
-        <PieceLayer state={state} animatingTeams={animatingTeams} positionMap={positionMap} />
+        <PieceLayer state={state} displayPositions={displayPositions} positionMap={positionMap} />
       </div>
     </div>
   );
@@ -135,18 +151,19 @@ export default function Board({
 
 function PieceLayer({
   state,
-  animatingTeams,
+  displayPositions,
   positionMap,
 }: {
   state: GameState;
-  animatingTeams: Record<string, { row: number; col: number }>;
+  displayPositions: Record<string, number>;
   positionMap: Record<number, { row: number; col: number }>;
 }) {
   const teams = state.teams.filter((t) => t.team.position != null);
   return (
     <>
       {teams.map((t, i) => {
-        const pos = animatingTeams[t.team.id] ?? positionMap[t.team.position!];
+        const spaceIndex = displayPositions[t.team.id] ?? t.team.position!;
+        const pos = positionMap[spaceIndex];
         if (!pos) return null;
         const total = teams.length || 1;
         const angle = (i / total) * 2 * Math.PI;
@@ -190,17 +207,21 @@ function SpaceCell({
   state,
   row,
   col,
+  displayPositions,
 }: {
   space: GameState["spaces"][number];
   state: GameState;
   row: number;
   col: number;
+  displayPositions: Record<string, number>;
 }) {
   const prop = space.propertyId ? state.properties.find((p) => p.id === space.propertyId) : null;
   const owner = prop?.ownerTeamId ? state.teams.find((t) => t.team.id === prop.ownerTeamId) : null;
-  const tokens = state.teams.filter((t) => t.team.position === space.index);
+  const tokens = state.teams.filter((t) => displayPositions[t.team.id] === space.index);
   const stripe = prop?.color ?? typeStripe(space.type);
-  const isCurrent = state.teams.some((t) => t.team.id === state.game.currentTeamId && t.team.position === space.index);
+  const isCurrent =
+    state.game.currentTeamId != null &&
+    displayPositions[state.game.currentTeamId] === space.index;
 
   return (
     <div

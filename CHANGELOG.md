@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Current-tile highlight jumps on roll**: board ring highlight and faded token
+  dots now follow the animated display position (space index), not the
+  server-updated destination.
+- **Income statement empty after year-end (client)**: Statements tab auto-selects
+  the last closed year when the current year has no activity yet (after
+  year-end bump), instead of defaulting to an empty new year.
 - **First roll popup before dice animation**: `useDiceRoll` now hydrates once when
   game state first arrives (even with no roll events), so the first real roll
   runs the tumble/animating window instead of being mistaken for hydration.

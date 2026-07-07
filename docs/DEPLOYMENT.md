@@ -96,8 +96,10 @@ Example: if the host is `10.0.5.137`:
 8. Open the **Display** URL on the projector for the shared board, leaderboard,
    and celebration banners.
 9. At the end, use **Export** to download the game summary as JSON or CSV.
-   On the **Statements** tab, students can switch fiscal years once
-   `currentYear > 1` to review closed-year income after year-end closing.
+   On the **Statements** tab, students review closed-year income after
+   year-end — the view defaults to the last closed year; use the year
+   selector (when `currentYear > 1`) to switch to the current year or prior
+   years.
 
 ## Data and persistence
 

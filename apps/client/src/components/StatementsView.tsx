@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import type { TeamView, StatementsView } from "../api.js";
 
@@ -20,19 +20,31 @@ export default function StatementsView({
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<StmtTab>("statements");
   const [year, setYear] = useState(teamView.team.currentYear);
+  const userPickedYear = useRef(false);
 
   useEffect(() => {
+    userPickedYear.current = false;
     setYear(teamView.team.currentYear);
   }, [teamView.team.currentYear]);
 
   useEffect(() => {
     setData(null);
     setArap(null);
+    setError(null);
     api.statements(gameId, teamView.team.id, year).then(setData).catch((e) => setError((e as Error).message));
     if (difficulty === "accrual") {
       api.arapSchedule(gameId, teamView.team.id).then(setArap).catch((e) => setError((e as Error).message));
     }
   }, [gameId, teamView.team.id, difficulty, refreshKey, year]);
+
+  // After year-end, currentYear advances to an empty new year — default to the last closed year.
+  useEffect(() => {
+    if (!data || userPickedYear.current) return;
+    if (year !== teamView.team.currentYear) return;
+    if (teamView.team.currentYear <= 1) return;
+    const empty = data.income.revenue.length === 0 && data.income.expenses.length === 0;
+    if (empty) setYear(teamView.team.currentYear - 1);
+  }, [data, year, teamView.team.currentYear]);
 
   if (error) return <div className="text-red-600 p-4">{error}</div>;
   if (!data) return <div className="p-4">Loading statements…</div>;
@@ -49,7 +61,10 @@ export default function StatementsView({
           <select
             id="stmt-year"
             value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
+            onChange={(e) => {
+              userPickedYear.current = true;
+              setYear(Number(e.target.value));
+            }}
             className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white"
           >
             {Array.from({ length: teamView.team.currentYear }, (_, i) => i + 1).map((y) => (

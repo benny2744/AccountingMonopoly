@@ -7,8 +7,9 @@ students join over the LAN at `http://<teacher-LAN-IP>:5000`.
 **Current image includes:** classic 40-space Monopoly-style board, houses/hotels,
 railroads, card-draw spaces, pass-GO year-end, two-sided rent journaling
 (payer + receiver), lobby team add/remove (2–4 teams), hints/scoring/export,
-animated dice with modal gating (cards/tax wait for dice + piece movement),
-year-scoped financial statements, in-board controls, properties tab, and teacher
+animated dice with modal gating (cards/tax wait for dice + piece movement;
+current-tile highlight follows the token), year-scoped financial statements
+(default to last closed year after year-end), in-board controls, properties tab, and teacher
 recovery tools (Reveal Answer, Force next turn with counterparty auto-post).
 
 ## What you need
