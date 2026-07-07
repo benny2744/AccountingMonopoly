@@ -107,6 +107,31 @@ import { SIMPLE_BOARD } from "@amono/shared/game";
 When you change shared code, the server and client pick it up on their next
 type-check / reload.
 
+## Internationalization (i18n)
+
+The app supports multiple languages through a typed dictionary in
+`packages/shared/src/i18n/`:
+
+- `locales/en.ts` and `locales/zh-CN.ts` hold all user-facing strings. Add a
+  new key to **both** files, keeping the same structure and key order, then
+  translate the value.
+- `packages/shared/src/i18n/labels.ts` exports helper functions for dynamic
+  data: `getTeamNameLabel`, `getSpaceLabel`, `getPropertyLabel`,
+  `getAccountLabel`, `getDifficultyLabel`, `getPaymentMethodLabel`, etc.
+- React components import `useTranslation()` from
+  `apps/client/src/i18n/useTranslation.js`. The returned `t` function
+  interpolates `{{param}}` placeholders.
+- The default locale is `zh-CN`; fallback is English. `I18nProvider` persists the
+  choice in `localStorage` and sets `document.documentElement.lang`.
+- Server-side rendering (CSV export) uses the same shared helpers. It passes a
+  `lang` query parameter and temporarily sets the locale while generating the
+  response, so the file matches the client's active language.
+
+When you add a new UI label, put it in the most specific section
+(`teamDashboard.*`, `actionModal.*`, etc.) and mirror it in `zh-CN.ts`. Do not
+hardcode English strings in React components or server error messages; emit a
+`GameError` code and translate it on the client.
+
 ## Testing
 
 - Tests are colocated with source as `*.test.ts`.

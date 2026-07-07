@@ -6,7 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Full i18n support** (English + Simplified Chinese): typed dictionary in
+  `packages/shared/src/i18n`, language toggle in the client header, default
+  locale `zh-CN` persisted to `localStorage`, and helper functions for team names,
+  board spaces, properties, accounts, event cards, and payment methods. All
+  client UI components, event-log descriptions, and journal-entry prompts are
+  translated.
+- **Localized CSV export**: `GET /:id/export?format=csv&lang=zh-CN` returns
+  translated headers and human-readable values (team names, account names,
+  account types, journal descriptions, attempt outcomes).
+
 ### Fixed
+- **Vite alias for `@amono/shared` subpaths**: the production Docker build now
+  resolves `@amono/shared/i18n` correctly by aliasing the bare specifier to the
+  shared source directory with explicit subpath aliases.
 - **Current-tile highlight jumps on roll**: board ring highlight and faded token
   dots now follow the animated display position (space index), not the
   server-updated destination.
@@ -111,7 +125,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   journaling, multi-team card chaining through every receiver, and teacher
   reveal auto-posting all counterparties. Post-review fixes add lobby
   remove-then-add regression and `forceNextTurn` counterparty auto-post.
-  Total **126/126** passing.
+  Total **128/128** passing.
 
 ---
 

@@ -9,8 +9,9 @@ railroads, card-draw spaces, pass-GO year-end, two-sided rent journaling
 (payer + receiver), lobby team add/remove (2–4 teams), hints/scoring/export,
 animated dice with modal gating (cards/tax wait for dice + piece movement;
 current-tile highlight follows the token), year-scoped financial statements
-(default to last closed year after year-end), in-board controls, properties tab, and teacher
-recovery tools (Reveal Answer, Force next turn with counterparty auto-post).
+(default to last closed year after year-end), in-board controls, properties tab,
+teacher recovery tools (Reveal Answer, Force next turn with counterparty auto-post),
+and English/Chinese language toggle with localized CSV export.
 
 ## What you need
 
