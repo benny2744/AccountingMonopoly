@@ -7,7 +7,7 @@ import { postEntry, postExpectedAsSystem } from "./accountingService.js";
 import { now, roomCode, sha256, uuid } from "../util/ids.js";
 import { countJoinedTeams } from "./sessionsService.js";
 
-const { getChartOfAccounts } = accounting;
+const { getChartOfAccounts, propertyAssignedAtSetup } = accounting;
 const { buildBoardForGame, DEFAULT_GAME_SETTINGS, teamColor, teamName } = gameData;
 
 export interface CreateGameInput {
@@ -125,17 +125,17 @@ function uniqueRoomCode(): string {
 export function startGame(gameId: string, teacherPin: string, opts?: { overrideMinTeams?: boolean }): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Game already started");
+  if (game.status !== "lobby") throw new GameError("GAME_ALREADY_STARTED", "Game already started");
   if (sha256(teacherPin) !== game.teacherPinHash) {
     throw new GameError("INVALID_PIN", "Incorrect teacher PIN");
   }
 
   const teams = queries.teamsByGame(gameId);
-  if (teams.length < 2) throw new GameError("NOT_ENOUGH_TEAMS", "Need at least 2 teams");
+  if (teams.length < 2) throw new GameError("NOT_ENOUGH_TEAMS", "Need at least 2 teams", { min: 2 });
 
   const joinedTeams = countJoinedTeams(gameId);
   if (joinedTeams < 2 && !opts?.overrideMinTeams) {
-    throw new GameError("NOT_ENOUGH_JOINED", `Need at least 2 teams with a student joined (${joinedTeams} joined)`);
+    throw new GameError("NOT_ENOUGH_JOINED", `Need at least 2 teams with a student joined (${joinedTeams} joined)`, { joined: joinedTeams });
   }
 
   const db = getDb();
@@ -169,7 +169,7 @@ export function startGame(gameId: string, teacherPin: string, opts?: { overrideM
         gameId,
         teamId: t.id,
         turnId: "setup",
-        description: "Opening cash invested by owner.",
+        description: "yearEnd.openingCash",
         sourceEventId: "setup-opening",
         year: t.currentYear,
         isStudentSubmitted: false,
@@ -215,25 +215,28 @@ export function assignProperty(
   sourceEventId: string,
 ): void {
   getDb().prepare("UPDATE properties SET owner_team_id = ? WHERE id = ?").run(team.id, property.id);
+  const expected = propertyAssignedAtSetup(team.id, property.purchasePrice, property.name);
   postEntry({
     gameId,
     teamId: team.id,
     turnId: "setup",
-    description: `Received ${property.name} at setup; invested as owner capital.`,
+    description: expected.description,
+    descriptionParams: expected.descriptionParams,
     sourceEventId,
     year: team.currentYear,
     isStudentSubmitted: false,
     isCorrect: true,
     attemptOutcome: "system",
-    lines: [
-      { accountName: "Property", debit: property.purchasePrice, credit: 0 },
-      { accountName: "Owner Capital", debit: 0, credit: property.purchasePrice },
-    ],
+    lines: expected.lines,
   });
 }
 
 export class GameError extends Error {
-  constructor(public code: string, message: string) {
+  constructor(
+    public code: string,
+    message: string,
+    public params?: Record<string, string | number>,
+  ) {
     super(message);
     this.name = "GameError";
   }
@@ -251,7 +254,7 @@ export function addTeam(gameId: string): Team {
   if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Can only add teams in the lobby");
   const teams = queries.teamsByGame(gameId);
   if (teams.length >= MAX_TEAMS) {
-    throw new GameError("TOO_MANY_TEAMS", `Maximum ${MAX_TEAMS} teams`);
+    throw new GameError("TOO_MANY_TEAMS", `Maximum ${MAX_TEAMS} teams`, { max: MAX_TEAMS });
   }
   const maxJoin = getDb()
     .prepare("SELECT COALESCE(MAX(join_order), -1) AS m FROM teams WHERE game_id = ?")
@@ -282,7 +285,7 @@ export function removeTeam(gameId: string, teamId: string): void {
   if (game.status !== "lobby") throw new GameError("INVALID_STATE", "Can only remove teams in the lobby");
   const teams = queries.teamsByGame(gameId);
   if (teams.length <= MIN_TEAMS) {
-    throw new GameError("TOO_FEW_TEAMS", `Need at least ${MIN_TEAMS} teams`);
+    throw new GameError("TOO_FEW_TEAMS", `Need at least ${MIN_TEAMS} teams`, { min: MIN_TEAMS });
   }
   const team = teams.find((t) => t.id === teamId);
   if (!team) throw new GameError("NOT_FOUND", "Team not found");
@@ -300,7 +303,7 @@ export function removeTeam(gameId: string, teamId: string): void {
 export function endGame(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status === "ended") throw new GameError("INVALID_STATE", "Game already ended");
+  if (game.status === "ended") throw new GameError("GAME_ALREADY_ENDED", "Game already ended");
   getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("ended", now(), gameId);
   logEvent(gameId, null, "teacher_override", { action: "end_game" });
   return queries.gameById(gameId)!;
@@ -309,7 +312,7 @@ export function endGame(gameId: string): Game {
 export function pauseGame(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("paused", now(), gameId);
   logEvent(gameId, null, "teacher_override", { action: "pause" });
   return queries.gameById(gameId)!;
@@ -318,7 +321,7 @@ export function pauseGame(gameId: string): Game {
 export function resumeGame(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "paused") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "paused") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   getDb().prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").run("active", now(), gameId);
   logEvent(gameId, null, "teacher_override", { action: "resume" });
   return queries.gameById(gameId)!;
@@ -329,7 +332,7 @@ export function forceNextTurn(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
   if (game.status !== "active" && game.status !== "paused") {
-    throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+    throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   }
   const teams = queries.teamsByGame(gameId);
   const pending = queries.pendingByGame(gameId);

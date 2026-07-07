@@ -3,6 +3,13 @@ import { useParams } from "react-router-dom";
 import { api, saveSession } from "../api.js";
 import { useGameStore } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import {
+  t,
+  getTeamNameLabel,
+  getGameStatusLabel,
+  getDifficultyLabel,
+} from "@amono/shared/i18n";
 import Board from "../components/Board.js";
 import Sidebar from "../components/Sidebar.js";
 import Leaderboard from "../components/Leaderboard.js";
@@ -15,6 +22,7 @@ type Tab = "overview" | "properties" | "taccounts" | "statements";
 
 export default function TeacherDashboard() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
+  const { t } = useTranslation();
   const { loading, error } = useRoomConnection(roomCode, "teacher");
   const { state } = useGameStore();
   const setSocketError = useGameStore((s) => s.setSocketError);
@@ -22,8 +30,8 @@ export default function TeacherDashboard() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
-  if (loading || !state) return <div className="p-8">Connecting to room {roomCode}…</div>;
+  if (error) return <div className="p-8 text-red-600">{t("teacherDashboard.error", { error })}</div>;
+  if (loading || !state) return <div className="p-8">{t("teacherDashboard.connecting", { roomCode })}</div>;
 
   const currentTeam = state.teams.find((t) => t.team.id === state.game.currentTeamId) ?? null;
   const selectedTeam: TeamView | null =
@@ -41,15 +49,22 @@ export default function TeacherDashboard() {
     }
   }
 
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "overview", label: t("teacherDashboard.overviewTab") },
+    { key: "properties", label: t("teacherDashboard.propertiesTab") },
+    { key: "taccounts", label: t("teacherDashboard.tAccountsTab") },
+    { key: "statements", label: t("teacherDashboard.statementsTab") },
+  ];
+
   return (
     <div className="min-h-screen p-4">
       <header className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold">Teacher Dashboard</h1>
+          <h1 className="text-xl font-bold">{t("teacherDashboard.title")}</h1>
           <div className="text-sm text-slate-500">
-            Room <span className="font-mono font-semibold">{state.game.roomCode}</span> ·{" "}
-            {state.game.status} · Turn {state.game.currentTurnNumber}
-            {currentTeam && <> · {currentTeam.team.name}'s turn</>}
+            {t("teacherDashboard.room")} <span className="font-mono font-semibold">{state.game.roomCode}</span> ·{" "}
+            {getGameStatusLabel(state.game.status)} · {t("teacherDashboard.turn", { turnNumber: state.game.currentTurnNumber })}
+            {currentTeam && <> · {getTeamNameLabel(currentTeam.team.name)}{t("teacherDashboard.turnSuffix")}</>}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -58,54 +73,54 @@ export default function TeacherDashboard() {
             disabled={busy}
             className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
           >
-            {state.game.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+            {state.game.status === "paused" ? t("teacherDashboard.resume") : t("teacherDashboard.pause")}
           </button>
           <button
             onClick={() => ctl(() => api.forceNextTurn(state.game.id))}
             disabled={busy}
             className="bg-slate-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
           >
-            ⏭ Force Next Turn
+            {t("teacherDashboard.forceNextTurn")}
           </button>
           <button
             onClick={() => {
-              if (!confirm("Reveal the correct journal entry for the active team? This counts against their clean-books bonus.")) return;
+              if (!confirm(t("teacherDashboard.revealConfirm"))) return;
               ctl(() => api.revealAnswer(state.game.id));
             }}
             disabled={busy || !state.pending || state.pending.status !== "awaiting_journal"}
             className="bg-rose-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
-            title="Post the correct entry for the active team"
+            title={t("teacherDashboard.revealTooltip")}
           >
-            💡 Reveal Answer
+            {t("teacherDashboard.revealAnswer")}
           </button>
           <a
             href={api.exportUrl(state.game.id, "csv")}
             className="bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 inline-flex items-center"
-            title="Download a CSV workbook (journal entries, balances, scores)"
+            title={t("teacherDashboard.exportCsvTooltip")}
           >
-            ⬇ Export CSV
+            {t("teacherDashboard.exportCsv")}
           </a>
           <a
             href={api.exportUrl(state.game.id, "json")}
             className="bg-emerald-100 text-emerald-900 px-4 py-2 rounded-lg font-medium hover:bg-emerald-200 inline-flex items-center"
-            title="Download the full event-sourced JSON record"
+            title={t("teacherDashboard.exportJsonTooltip")}
           >
-            ⬇ Export JSON
+            {t("teacherDashboard.exportJson")}
           </a>
           {state.game.status !== "ended" ? (
             <button
               onClick={() => {
-                if (confirm("End the game? Students will be locked out of further actions.")) ctl(() => api.endGame(state.game.id));
+                if (confirm(t("teacherDashboard.endGameConfirm"))) ctl(() => api.endGame(state.game.id));
               }}
               disabled={busy}
               className="bg-red-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
             >
-              ⏹ End Game
+              {t("teacherDashboard.endGame")}
             </button>
           ) : (
             <button
               onClick={() => {
-                const pin = prompt("Re-enter teacher PIN to clone settings into a new room:", "1234");
+                const pin = prompt(t("teacherDashboard.clonePinPrompt"), "1234");
                 if (pin) ctl(async () => {
                   const { game, sessionToken } = await api.cloneGame(state.game.id, pin);
                   saveSession(sessionToken);
@@ -115,7 +130,7 @@ export default function TeacherDashboard() {
               disabled={busy}
               className="bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
             >
-              ↻ Play Again (same settings)
+              {t("teacherDashboard.playAgain")}
             </button>
           )}
         </div>
@@ -123,20 +138,20 @@ export default function TeacherDashboard() {
 
       {state.game.status === "paused" && (
         <div className="mb-4 bg-amber-100 border border-amber-300 text-amber-900 rounded-lg p-3 font-medium">
-          Game is paused. Mutating actions are blocked.
+          {t("teacherDashboard.pausedBanner")}
         </div>
       )}
 
       <div className="flex gap-2 mb-4">
-        {(["overview", "properties", "taccounts", "statements"] as Tab[]).map((t) => (
+        {tabs.map((tabItem) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabItem.key}
+            onClick={() => setTab(tabItem.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              tab === t ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
+              tab === tabItem.key ? "bg-slate-800 text-white" : "bg-white border border-slate-300"
             }`}
           >
-            {t === "overview" ? "Overview" : t === "properties" ? "Properties" : t === "taccounts" ? "T-Accounts" : "Statements"}
+            {tabItem.label}
           </button>
         ))}
       </div>
@@ -181,16 +196,16 @@ export default function TeacherDashboard() {
 function TeamTable({ state }: { state: import("../api.js").GameState }) {
   return (
     <div className="bg-white rounded-2xl shadow p-4">
-      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Teams</h2>
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">{t("teacherDashboard.teamsHeader")}</h2>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-slate-500 border-b">
-            <th className="py-2">Team</th>
-            <th className="py-2 text-right">Cash</th>
-            <th className="py-2 text-right">Loan</th>
-            <th className="py-2 text-right">Props</th>
-            <th className="py-2 text-right">Position</th>
-            <th className="py-2 text-right">Stuck</th>
+            <th className="py-2">{t("teacherDashboard.teamColumn")}</th>
+            <th className="py-2 text-right">{t("teacherDashboard.cashColumn")}</th>
+            <th className="py-2 text-right">{t("teacherDashboard.loanColumn")}</th>
+            <th className="py-2 text-right">{t("teacherDashboard.propsColumn")}</th>
+            <th className="py-2 text-right">{t("teacherDashboard.positionColumn")}</th>
+            <th className="py-2 text-right">{t("teacherDashboard.stuckColumn")}</th>
           </tr>
         </thead>
         <tbody>
@@ -201,8 +216,8 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
               <tr key={tv.team.id} className={`border-b ${isCurrent ? "bg-amber-50" : ""}`}>
                 <td className="py-2 flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full" style={{ background: tv.team.color }} />
-                  {tv.team.name}
-                  {isCurrent && <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded">turn</span>}
+                  {getTeamNameLabel(tv.team.name)}
+                  {isCurrent && <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded">{t("teacherDashboard.turnBadge")}</span>}
                 </td>
                 <td className="py-2 text-right">${tv.cash}</td>
                 <td className="py-2 text-right">${tv.loanPayable}</td>
@@ -211,7 +226,7 @@ function TeamTable({ state }: { state: import("../api.js").GameState }) {
                 <td className="py-2 text-right">
                   {stuck ? (
                     <span className={`text-xs px-2 py-0.5 rounded ${stuck.severity === "high" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`} title={stuck.label}>
-                      {stuck.minutes}m
+                      {t("teacherDashboard.stuckMinutes", { minutes: stuck.minutes })}
                     </span>
                   ) : (
                     <span className="text-slate-300">—</span>
@@ -239,7 +254,7 @@ function stuckInfo(
   return {
     minutes,
     severity: minutes >= 3 ? "high" : "low",
-    label: `${p.kind} open for ${minutes} min`,
+    label: t("teacherDashboard.stuckLabel", { kind: p.kind, minutes }),
   };
 }
 
@@ -263,7 +278,7 @@ function TeamPicker({
           }`}
         >
           <span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle" style={{ background: tv.team.color }} />
-          {tv.team.name}
+          {getTeamNameLabel(tv.team.name)}
         </button>
       ))}
     </div>
@@ -280,7 +295,7 @@ function CreditLimitPanel({
 }) {
   return (
     <div className="bg-white rounded-2xl shadow p-4">
-      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Credit Limit Override</h2>
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">{t("teacherDashboard.creditLimitOverride")}</h2>
       <div className="space-y-2">
         {state.teams.map((tv) => (
           <CreditLimitRow
@@ -319,8 +334,8 @@ function CreditLimitRow({
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="inline-block w-3 h-3 rounded-full" style={{ background: color }} />
-      <span className="flex-1">{name}</span>
-      <span className="text-slate-400 text-xs">limit ${current}</span>
+      <span className="flex-1">{getTeamNameLabel(name)}</span>
+      <span className="text-slate-400 text-xs">{t("teacherDashboard.currentLimit", { current })}</span>
       <input
         type="number"
         value={val}
@@ -341,7 +356,7 @@ function CreditLimitRow({
         disabled={busy || val === current}
         className="bg-slate-700 text-white px-3 py-1 rounded-lg text-xs disabled:opacity-50"
       >
-        Set
+        {t("teacherDashboard.setButton")}
       </button>
     </div>
   );
@@ -358,7 +373,7 @@ function YearEndTriggerPanel({
   const [busy, setBusy] = useState(false);
   return (
     <div className="bg-white rounded-2xl shadow p-4">
-      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Trigger Year-End</h2>
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">{t("teacherDashboard.triggerYearEnd")}</h2>
       <div className="flex flex-wrap gap-2">
         {state.teams.map((tv) => (
           <button
@@ -377,12 +392,12 @@ function YearEndTriggerPanel({
             className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50"
           >
             <span className="inline-block w-2.5 h-2.5 rounded-full mr-2 align-middle" style={{ background: tv.team.color }} />
-            {tv.team.name}
+            {getTeamNameLabel(tv.team.name)}
           </button>
         ))}
       </div>
       <p className="text-xs text-slate-500 mt-2">
-        Forces the year-end checklist for a team. Useful if a team is stuck or the teacher wants to align all teams.
+        {t("teacherDashboard.triggerYearEndHint")}
       </p>
     </div>
   );

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import type { GameState } from "../api.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import { getTeamNameLabel } from "@amono/shared/i18n";
 
 export default function Leaderboard({ state, showScores }: { state: GameState; showScores: boolean }) {
+  const { t } = useTranslation();
   const [scoreMap, setScoreMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -33,16 +36,16 @@ export default function Leaderboard({ state, showScores }: { state: GameState; s
   return (
     <div className="bg-white rounded-2xl shadow p-4">
       <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">
-        Leaderboard{showScores ? " · by score" : " · by cash"}
+        {showScores ? t("leaderboard.byScore") : t("leaderboard.byCash")}
       </div>
       <div className="space-y-1.5">
         {ranked.map((tv, i) => (
           <div key={tv.team.id} className="flex items-center gap-3 text-lg">
-            <span className="text-slate-400 w-6 text-xl">{i + 1}.</span>
+            <span className="text-slate-400 w-6 text-xl">{t("leaderboard.rank", { rank: i + 1 })}</span>
             <span className="inline-block w-4 h-4 rounded-full" style={{ background: tv.team.color }} />
-            <span className="flex-1 font-semibold">{tv.team.name}</span>
+            <span className="flex-1 font-semibold">{getTeamNameLabel(tv.team.name)}</span>
             <span className="font-mono">
-              {showScores && scoreMap[tv.team.id] !== undefined ? `${scoreMap[tv.team.id]} pts` : `$${tv.cash}`}
+              {showScores && scoreMap[tv.team.id] !== undefined ? t("leaderboard.points", { score: scoreMap[tv.team.id] ?? 0 }) : `$${tv.cash}`}
             </span>
           </div>
         ))}

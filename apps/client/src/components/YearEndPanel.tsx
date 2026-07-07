@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { api } from "../api.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import { t, getAccountLabel } from "@amono/shared/i18n";
 import type { GameState, PendingAction } from "../api.js";
 
 interface YearEndPayload {
@@ -26,12 +28,14 @@ export default function YearEndPanel({
   teamId: string;
   pending: PendingAction;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (pending.kind !== "year_end") return null;
   const payload = pending.payload as YearEndPayload;
   const step = payload.steps[payload.currentStep];
+  const year = state.teams.find((t) => t.team.id === teamId)?.team.currentYear;
 
   async function resolve(choice: "pay_cash" | "roll_to_loan" | "continue") {
     setBusy(true);
@@ -48,9 +52,9 @@ export default function YearEndPanel({
 
   return (
     <div className="bg-white rounded-2xl shadow p-5 border-t-4 border-purple-500">
-      <h2 className="font-bold text-lg mb-1">Year-End Checklist</h2>
+      <h2 className="font-bold text-lg mb-1">{t("yearEndPanel.title")}</h2>
       <p className="text-sm text-slate-600 mb-3">
-        Complete each step to close the books for Year {state.teams.find((t) => t.team.id === teamId)?.team.currentYear}.
+        {t("yearEndPanel.instruction", { year: year ?? 1 })}
       </p>
       <ol className="space-y-2 mb-4">
         {payload.steps.map((s, i) => {
@@ -72,21 +76,21 @@ export default function YearEndPanel({
 
       {step?.kind === "settle_ap" && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
-          <div className="text-sm font-semibold text-amber-900">Settle this payable: ${step.amount}</div>
+          <div className="text-sm font-semibold text-amber-900">{t("yearEndPanel.settlePayable", { amount: step.amount ?? 0 })}</div>
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => resolve("pay_cash")}
               disabled={busy}
               className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
             >
-              Pay Cash
+              {t("yearEndPanel.payCash")}
             </button>
             <button
               onClick={() => resolve("roll_to_loan")}
               disabled={busy}
               className="bg-rose-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"
             >
-              Roll to Loan
+              {t("yearEndPanel.rollToLoan")}
             </button>
           </div>
         </div>
@@ -98,7 +102,7 @@ export default function YearEndPanel({
           disabled={busy}
           className="bg-purple-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50"
         >
-          {busy ? "Applying…" : "Continue →"}
+          {busy ? t("yearEndPanel.applying") : t("yearEndPanel.continue")}
         </button>
       )}
 
@@ -110,17 +114,20 @@ export default function YearEndPanel({
 function labelFor(kind: string, amount?: number, account?: string): string {
   switch (kind) {
     case "collect_ar":
-      return `Collect Accounts Receivable${amount ? ` ($${amount})` : ""}`;
+      return t("yearEndPanel.collectAr", { amount: amount ? ` ($${amount})` : "" });
     case "settle_ap":
-      return `Settle Accounts Payable${amount ? ` ($${amount})` : ""}`;
+      return t("yearEndPanel.settleAp", { amount: amount ? ` ($${amount})` : "" });
     case "recognize_prepaid":
-      return `Recognize prepaid expense${account ? ` → ${account}` : ""}${amount ? ` ($${amount})` : ""}`;
+      return t("yearEndPanel.recognizePrepaid", {
+        account: account ? ` → ${getAccountLabel(account)}` : "",
+        amount: amount ? ` ($${amount})` : "",
+      });
     case "snapshot_statements":
-      return "Snapshot financial statements";
+      return t("yearEndPanel.snapshotStatements");
     case "closing_entries":
-      return "Close revenue & expenses to Retained Earnings";
+      return t("yearEndPanel.closeRevenueExpenses");
     case "done":
-      return "Advance to next year";
+      return t("yearEndPanel.advanceYear");
     default:
       return kind;
   }

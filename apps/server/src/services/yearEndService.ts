@@ -103,7 +103,7 @@ export function activateYearEnd(gameId: string, teamId: string, turnId: string):
 export function startYearEnd(gameId: string, teamId: string): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   const team = queries.teamsByGame(gameId).find((t) => t.id === teamId);
   if (!team) throw new GameError("NOT_FOUND", "Team not found");
   if (queries.yearEndPendingByTeam(teamId)) throw new GameError("YEAR_END_OPEN", "Year-end checklist already open");
@@ -117,7 +117,7 @@ export function resolveYearEndStep(
 ): { completed: boolean } {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   const pending = queries.yearEndPendingByTeam(teamId);
   if (!pending || pending.kind !== "year_end") throw new GameError("NO_PENDING", "No year-end pending");
   const payload = pending.payload as YearEndPayload;

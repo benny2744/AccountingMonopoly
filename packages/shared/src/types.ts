@@ -118,6 +118,7 @@ export interface JournalEntry {
   teamId: string;
   turnId: string;
   description: string;
+  descriptionParams?: Record<string, unknown>;
   sourceEventId: string;
   createdAt: string;
   year: number;
@@ -178,6 +179,7 @@ export interface ExpectedEntryLine {
 export interface ExpectedEntry {
   teamId: string;
   description: string;
+  descriptionParams?: Record<string, string | number>;
   lines: ExpectedEntryLine[];
 }
 
@@ -192,6 +194,8 @@ export interface ValidationResult {
   correct: boolean;
   errors: ValidationErrorCode[];
   feedback: string;
+  feedbackKey?: string;
+  feedbackParams?: Record<string, string | number>;
 }
 
 export interface AccountBalance {

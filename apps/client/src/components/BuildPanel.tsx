@@ -2,9 +2,12 @@ import { useMemo, useState } from "react";
 import { api } from "../api.js";
 import type { GameState } from "../api.js";
 import { useGameStore } from "../store.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import { getPropertyLabel } from "@amono/shared/i18n";
 
 /** Streets eligible for building when the active team owns a full color group. */
 export default function BuildPanel({ state, teamId }: { state: GameState; teamId: string }) {
+  const { t } = useTranslation();
   const setState = useGameStore((s) => s.setState);
   const setSocketError = useGameStore((s) => s.setSocketError);
   const [busy, setBusy] = useState<string | null>(null);
@@ -36,8 +39,8 @@ export default function BuildPanel({ state, teamId }: { state: GameState; teamId
 
   return (
     <div className="bg-white rounded-2xl shadow p-4 border-t-4 border-emerald-500">
-      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Build Houses / Hotels</h2>
-      <p className="text-xs text-slate-500 mb-3">Own a full color group? Build here before rolling (journal entry required).</p>
+      <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">{t("buildPanel.title")}</h2>
+      <p className="text-xs text-slate-500 mb-3">{t("buildPanel.helper")}</p>
       <div className="flex flex-wrap gap-2">
         {eligible.map((p) => (
           <button
@@ -47,9 +50,9 @@ export default function BuildPanel({ state, teamId }: { state: GameState; teamId
             className="px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50 text-left"
           >
             <span className="inline-block w-2 h-2 rounded-sm mr-1 align-middle" style={{ background: p.color }} />
-            {p.name}
+            {getPropertyLabel(p.name)}
             <span className="text-slate-400 ml-1">
-              ({p.houses === 0 ? "0" : p.houses >= 5 ? "hotel" : `${p.houses}🏠`} → {p.houses === 4 ? "hotel" : "house"}) ${p.houseCost}
+              ({p.houses === 0 ? t("buildPanel.zero") : p.houses >= 5 ? t("buildPanel.hotel") : t("buildPanel.houseCount", { count: p.houses })} → {p.houses === 4 ? t("buildPanel.hotel") : t("buildPanel.house")}) ${p.houseCost}
             </span>
           </button>
         ))}

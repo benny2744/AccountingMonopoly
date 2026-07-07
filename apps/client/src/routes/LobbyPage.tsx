@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type RoomLookup, type LanInfo } from "../api.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import { LanguageToggle } from "../i18n/LanguageToggle.js";
+import { getDifficultyLabel, getTeamNameLabel } from "@amono/shared/i18n";
 
 export default function LobbyPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { roomCode = "" } = useParams<{ roomCode: string }>();
   const [room, setRoom] = useState<RoomLookup | null>(null);
@@ -75,63 +79,72 @@ export default function LobbyPage() {
     }
   }
 
-  if (error && !room) return <div className="p-8 text-red-600">Error: {error}</div>;
-  if (!room) return <div className="p-8">Loading lobby…</div>;
+  if (error && !room) return <div className="p-8 text-red-600">{t("teamDashboard.error", { error })}</div>;
+  if (!room) return <div className="p-8">{t("lobbyPage.loading")}</div>;
 
   const s = room.settings;
 
   return (
     <div className="min-h-screen p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Lobby — {room.difficulty === "cash" ? "Cash Basis" : "Accrual Basis"}</h1>
+      <div className="flex items-start justify-between mb-2">
+        <h1 className="text-2xl font-bold">{t("lobbyPage.title", { difficulty: getDifficultyLabel(room.difficulty) })}</h1>
+        <LanguageToggle />
+      </div>
       <div className="bg-white rounded-2xl shadow p-6 mb-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <div className="text-sm text-slate-500 uppercase tracking-wide">Room code</div>
+            <div className="text-sm text-slate-500 uppercase tracking-wide">{t("lobbyPage.roomCode")}</div>
             <div className="font-mono font-bold text-5xl tracking-widest">{room.roomCode}</div>
           </div>
           <div className="text-right">
-            <div className="text-sm text-slate-500">Join URL</div>
+            <div className="text-sm text-slate-500">{t("lobbyPage.joinUrl")}</div>
             <button onClick={copy} className="font-mono text-sm bg-slate-100 px-3 py-2 rounded-lg hover:bg-slate-200">
-              {copied ? "Copied!" : joinUrl}
+              {copied ? t("common.copied") : joinUrl}
             </button>
           </div>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-6 mb-4">
-        <h2 className="font-semibold mb-3">Settings</h2>
+        <h2 className="font-semibold mb-3">{t("lobbyPage.settings")}</h2>
         <div className="grid grid-cols-2 gap-2 text-sm text-slate-600">
-          <div>Starting cash: ${s.startingCash}</div>
-          <div>Loan limit: ${s.startingLoanLimit}</div>
-          <div>Property allocation: {Math.round(s.propertyAllocationRatio * 100)}%</div>
-          <div>Teams joined: {joinedTeams} / {room.teams.length}</div>
+          <div>{t("lobbyPage.startingCash", { amount: s.startingCash })}</div>
+          <div>{t("lobbyPage.loanLimit", { amount: s.startingLoanLimit })}</div>
+          <div>{t("lobbyPage.propertyAllocation", { percent: Math.round(s.propertyAllocationRatio * 100) })}</div>
+          <div>{t("lobbyPage.teamsJoined", { joined: joinedTeams, total: room.teams.length })}</div>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-6 mb-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold">Teams ({room.teams.length}/4)</h2>
+          <h2 className="font-semibold">{t("lobbyPage.teamsSection", { count: room.teams.length })}</h2>
           <button
             onClick={addTeam}
             disabled={busy || room.teams.length >= 4}
             className="bg-indigo-600 text-white text-sm px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-40"
           >
-            ➕ Add Team
+            ➕ {t("lobbyPage.addTeam")}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {room.teams.map((t) => (
-            <div key={t.id} className="rounded-lg border border-slate-200 p-3 flex items-center gap-3">
-              <span className="w-4 h-4 rounded-full" style={{ background: t.color }} />
-              <span className="font-semibold flex-1">{t.name}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${t.joinedCount > 0 ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-500"}`}>
-                {t.joinedCount > 0 ? `${t.joinedCount} joined` : "waiting"}
+          {room.teams.map((team) => (
+            <div key={team.id} className="rounded-lg border border-slate-200 p-3 flex items-center gap-3">
+              <span className="w-4 h-4 rounded-full" style={{ background: team.color }} />
+              <span className="font-semibold flex-1">{getTeamNameLabel(team.name)}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${team.joinedCount > 0 ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-500"}`}>
+                {team.joinedCount > 0 ? t("lobbyPage.joinedCount", { count: team.joinedCount }) : t("lobbyPage.waiting")}
               </span>
               <button
-                onClick={() => removeTeam(t.id)}
-                disabled={busy || t.joinedCount > 0 || room.teams.length <= 2}
+                onClick={() => removeTeam(team.id)}
+                disabled={busy || team.joinedCount > 0 || room.teams.length <= 2}
                 className="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 text-lg leading-none"
-                title={t.joinedCount > 0 ? "Cannot remove a team with students joined" : room.teams.length <= 2 ? "Need at least 2 teams" : "Remove team"}
+                title={
+                  team.joinedCount > 0
+                    ? t("lobbyPage.cannotRemoveJoined")
+                    : room.teams.length <= 2
+                    ? t("lobbyPage.needAtLeastTwoTeams")
+                    : t("lobbyPage.removeTeam")
+                }
               >
                 ✕
               </button>
@@ -139,19 +152,19 @@ export default function LobbyPage() {
           ))}
         </div>
         <p className="text-sm text-slate-500 mt-3">
-          Students pick their team at <code>/join/{roomCode}</code>. Multiple students can share one team. Add up to 4 teams; remove unjoined slots any time before start.
+          {t("lobbyPage.instructions", { roomCode })}
         </p>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-6">
-        <h2 className="font-semibold mb-3">Start the game</h2>
+        <h2 className="font-semibold mb-3">{t("lobbyPage.startSection")}</h2>
         {!canStart && (
           <div className="mb-3 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
-            Need at least 2 teams with a student joined ({joinedTeams} joined). You can start anyway for a demo.
+            {t("lobbyPage.needStudentsWarning", { joined: joinedTeams })}
           </div>
         )}
         <label className="block mb-3">
-          <span className="text-sm font-medium text-slate-600 block mb-1">Re-enter teacher PIN to start</span>
+          <span className="text-sm font-medium text-slate-600 block mb-1">{t("lobbyPage.teacherPinPrompt")}</span>
           <input className="input" value={teacherPin} onChange={(e) => setTeacherPin(e.target.value)} />
         </label>
         <button
@@ -159,7 +172,7 @@ export default function LobbyPage() {
           disabled={busy || teacherPin.length === 0 || !canStart}
           className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
         >
-          {busy ? "Starting…" : "Start Game →"}
+          {busy ? t("lobbyPage.starting") : t("lobbyPage.startGame")}
         </button>
         {!canStart && (
           <button
@@ -167,7 +180,7 @@ export default function LobbyPage() {
             disabled={busy || teacherPin.length === 0}
             className="w-full mt-2 border border-slate-300 text-slate-700 py-3 rounded-lg font-semibold hover:bg-slate-50 disabled:opacity-50"
           >
-            Start anyway (demo override)
+            {t("lobbyPage.startAnyway")}
           </button>
         )}
         {error && <div className="text-red-600 text-sm mt-2">{error}</div>}

@@ -1,5 +1,7 @@
 // REST client + shared types matching the server's response shapes.
 import type { AccountType } from "@amono/shared";
+import { getLocale } from "@amono/shared/i18n";
+import { translateServerError } from "./i18n/error.js";
 
 export interface GameSettings {
   propertyAllocationRatio: number;
@@ -154,12 +156,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;
   if (!r.ok) {
-    const err = new Error(data?.error?.message ?? `HTTP ${r.status}`) as Error & {
+    const code = data?.error?.code as string | undefined;
+    const params = data?.error?.params as Record<string, unknown> | undefined;
+    const fallback = data?.error?.message ?? `HTTP ${r.status}`;
+    const err = new Error(code ? translateServerError(code, fallback, params) : fallback) as Error & {
       status?: number;
       code?: string;
+      params?: Record<string, unknown>;
     };
     err.status = r.status;
-    err.code = data?.error?.code;
+    err.code = code;
+    err.params = params;
     throw err;
   }
   return data as T;
@@ -320,7 +327,7 @@ export const api = {
         yearSnapshots: { year: number; score: number; cumulative: number }[];
       }[];
     }>(`/games/${gameId}/scores`),
-  exportUrl: (gameId: string, format: "json" | "csv") => `/api/games/${gameId}/export?format=${format}`,
+  exportUrl: (gameId: string, format: "json" | "csv") => `/api/games/${gameId}/export?format=${format}${format === "csv" ? `&lang=${getLocale()}` : ""}`,
 
   // Team management (lobby-only add/remove)
   addTeam: (gameId: string) => req<{ team: Team }>(`/games/${gameId}/teams`, { method: "POST", body: "{}" }),

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GameState, TeamView } from "../api.js";
 import { latestEvent } from "../events.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import {
+  t,
+  getSpaceLabel,
+  getTeamNameLabel,
+  getEventCardTitle,
+} from "@amono/shared/i18n";
 
 import Dice, { STEP_MS } from "./Dice.js";
 
@@ -24,6 +31,7 @@ export default function Board({
   rolling?: boolean;
   controls?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const placed = placePerimeter(state.spaces);
   const positionMap = usePositionMap(state.spaces);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -182,7 +190,7 @@ function PieceLayer({
             <span
               className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-white shadow-md"
               style={{ background: t.team.color }}
-              title={t.team.name}
+              title={getTeamNameLabel(t.team.name)}
             />
           </div>
         );
@@ -215,6 +223,7 @@ function SpaceCell({
   col: number;
   displayPositions: Record<string, number>;
 }) {
+  const { t } = useTranslation();
   const prop = space.propertyId ? state.properties.find((p) => p.id === space.propertyId) : null;
   const owner = prop?.ownerTeamId ? state.teams.find((t) => t.team.id === prop.ownerTeamId) : null;
   const tokens = state.teams.filter((t) => displayPositions[t.team.id] === space.index);
@@ -232,9 +241,9 @@ function SpaceCell({
         <div className="h-1.5 w-full rounded-t-sm shrink-0" style={{ background: stripe }} />
       )}
       {prop?.kind === "railroad" && (
-        <div className="text-[7px] font-bold text-slate-600 bg-slate-200 text-center py-0.5">RR</div>
+        <div className="text-[7px] font-bold text-slate-600 bg-slate-200 text-center py-0.5">{t("board.railroadAbbreviation")}</div>
       )}
-      <div className="font-semibold truncate px-0.5 pt-0.5">{shortName(space.name)}</div>
+      <div className="font-semibold truncate px-0.5 pt-0.5">{shortName(getSpaceLabel(space.name))}</div>
       {prop && (
         <div className="text-slate-600 px-0.5">
           ${prop.purchasePrice}
@@ -244,7 +253,7 @@ function SpaceCell({
       {prop && prop.houses > 0 && (
         <div className="flex gap-px px-0.5 pb-0.5">
           {prop.houses >= 5 ? (
-            <span className="text-red-600 font-bold text-[8px]">H</span>
+            <span className="text-red-600 font-bold text-[8px]">{t("board.hotel")}</span>
           ) : (
             Array.from({ length: prop.houses }).map((_, i) => (
               <span key={i} className="w-1.5 h-1.5 rounded-sm bg-emerald-600 inline-block" />
@@ -254,7 +263,7 @@ function SpaceCell({
       )}
       {owner && (
         <div className="text-[7px] font-bold truncate px-0.5" style={{ color: owner.team.color }}>
-          {owner.team.name}
+          {getTeamNameLabel(owner.team.name)}
         </div>
       )}
       {tokens.length > 0 && (
@@ -284,6 +293,7 @@ function Center({
   rolling: boolean;
   controls?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const current = state.teams.find((t) => t.team.id === state.game.currentTeamId);
   const lastRoll = latestEvent(state.events, "roll");
   const lastEvent = state.events.find((e) => e.type !== "roll" && e.type !== "move");
@@ -294,10 +304,10 @@ function Center({
       style={{ gridRow: "2 / span 9", gridColumn: "2 / span 9" }}
     >
       <div className="flex flex-col items-center">
-        <div className="text-slate-400 text-xs uppercase tracking-wide">Current Turn</div>
+        <div className="text-slate-400 text-xs uppercase tracking-wide">{t("board.currentTurn")}</div>
         {current ? (
           <div className="text-2xl sm:text-3xl font-bold" style={{ color: current.team.color }}>
-            {current.team.name}
+            {getTeamNameLabel(current.team.name)}
           </div>
         ) : (
           <div className="text-slate-400 text-lg">—</div>
@@ -309,17 +319,17 @@ function Center({
           <Dice dice={showDice} rolling={rolling} size="board" />
           {!rolling && lastRoll && (
             <div className="text-sm text-slate-600 mt-2">
-              Rolled <span className="font-mono font-semibold text-lg">{(lastRoll.payload as any).total}</span>
+              {t("board.rolled", { total: (lastRoll.payload as any).total })}
             </div>
           )}
           {rolling && (
-            <div className="text-sm text-indigo-600 mt-2 font-medium animate-pulse">Rolling…</div>
+            <div className="text-sm text-indigo-600 mt-2 font-medium animate-pulse">{t("board.rolling")}</div>
           )}
         </div>
       )}
 
       <div className="flex flex-col items-center gap-2 w-full">
-        <div className="text-xs text-slate-400">Year {current?.team.currentYear ?? 1}</div>
+        <div className="text-xs text-slate-400">{t("board.year", { year: current?.team.currentYear ?? 1 })}</div>
         {state.pending && (
           <div className="text-sm bg-amber-100 text-amber-800 rounded px-3 py-1">
             {pendingLabel(state.pending.kind, state.pending.status)}
@@ -327,7 +337,7 @@ function Center({
         )}
         {lastEvent && !state.pending && (
           <div className="text-[11px] text-slate-400 max-w-xs">
-            {describeEvent(lastEvent.type, lastEvent.payload)}
+            {describeEvent(lastEvent.type, lastEvent.payload, state)}
           </div>
         )}
         {controls && (
@@ -339,25 +349,29 @@ function Center({
 }
 
 function pendingLabel(kind: string, status: string): string {
-  if (status === "awaiting_journal") return "Record your journal entry ↓";
-  if (kind === "buy_or_skip") return "Buy or skip property?";
-  if (kind === "rent_due") return "Choose payment method";
-  if (kind === "bank_stop") return "Visit the bank?";
-  if (kind === "build_house") return "Record building purchase ↓";
-  if (kind === "event_card") return "Event card drawn";
-  return "Resolve action";
+  if (status === "awaiting_journal") return t("board.recordJournal");
+  if (kind === "buy_or_skip") return t("board.buyOrSkip");
+  if (kind === "rent_due") return t("board.choosePayment");
+  if (kind === "bank_stop") return t("board.visitBank");
+  if (kind === "build_house") return t("board.recordBuilding");
+  if (kind === "event_card") return t("board.eventCardDrawn");
+  return t("board.resolveAction");
 }
 
-function describeEvent(type: string, payload: any): string {
+function describeEvent(type: string, payload: any, state: GameState): string {
+  const teamName = (id?: string) => {
+    const name = id ? state.teams.find((t) => t.team.id === id)?.team.name : undefined;
+    return name ? getTeamNameLabel(name) : "";
+  };
   switch (type) {
     case "rent_due":
-      return `${payload.payer ?? ""} owes rent ${payload.rent}`;
+      return t("gameEvent.rentDue", { payer: teamName(payload.payer), owner: teamName(payload.owner), rent: payload.rent });
     case "buy_property":
-      return `${payload.teamId ?? ""} bought property (${payload.price})`;
+      return t("gameEvent.boughtProperty", { teamName: teamName(payload.teamId), price: payload.price });
     case "interest_charged":
-      return `Interest charged: ${payload.amount}`;
+      return t("gameEvent.interestCharged", { teamName: teamName(payload.teamId), amount: payload.amount });
     case "draw_event_card":
-      return `Card: ${payload.title}`;
+      return t("gameEvent.drewCard", { teamName: teamName(payload.teamId), title: payload.cardId ? getEventCardTitle(payload.cardId) : payload.title });
     default:
       return type;
   }

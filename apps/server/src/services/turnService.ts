@@ -1,5 +1,5 @@
 import type { ExpectedEntry, Game, Property, Team } from "@amono/shared";
-import { accounting, game as gameData } from "@amono/shared";
+import { accounting, game as gameData, getEventCardTitleKey } from "@amono/shared";
 import { getDb } from "../db/client.js";
 import { queries } from "../db/queries.js";
 import { logEvent } from "./eventLog.js";
@@ -82,7 +82,7 @@ function bumpAttempts(gameId: string): void {
 export function roll(gameId: string, teamId: string): { dice: [number, number]; newPosition: number; space: string } {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   if (game.currentTeamId !== teamId) throw new GameError("NOT_YOUR_TURN", "It's not your turn");
   if (game.turnPhase !== "awaiting_roll") {
     throw new GameError("INVALID_STATE", "Already rolled this turn — resolve the action or end your turn");
@@ -246,22 +246,22 @@ function expectedEntriesForEventCard(
   const others = allTeams.filter((t) => t.id !== team.id);
   switch (card.kind) {
     case "owner_capital":
-      return [ownerCapitalContribution(team.id, card.amount, card.title)];
+      return [ownerCapitalContribution(team.id, card.amount, getEventCardTitleKey(card.id))];
     case "cash_revenue":
-      return [cashEventRevenue(team.id, card.amount, card.title)];
+      return [cashEventRevenue(team.id, card.amount, getEventCardTitleKey(card.id))];
     case "cash_expense":
-      return [cashEventExpense(team.id, card.amount, card.expenseAccount ?? "Event Expense", card.title)];
+      return [cashEventExpense(team.id, card.amount, card.expenseAccount ?? "Event Expense", getEventCardTitleKey(card.id))];
     case "multi_team_pay":
-      return multiTeamEventPay(team.id, others.map((t) => t.id), card.perTeamAmount ?? card.amount, card.title);
+      return multiTeamEventPay(team.id, others.map((t) => t.id), card.perTeamAmount ?? card.amount, getEventCardTitleKey(card.id));
     case "multi_team_collect":
-      return multiTeamEventCollect(team.id, others.map((t) => t.id), card.perTeamAmount ?? card.amount, card.title);
+      return multiTeamEventCollect(team.id, others.map((t) => t.id), card.perTeamAmount ?? card.amount, getEventCardTitleKey(card.id));
     // Accrual kinds handled in Phase 4.
     case "accrual_revenue_receivable":
-      return [revenueReceivable(team.id, card.amount, card.revenueAccount ?? "Event Revenue", card.title)];
+      return [revenueReceivable(team.id, card.amount, card.revenueAccount ?? "Event Revenue", getEventCardTitleKey(card.id))];
     case "accrual_expense_payable":
-      return [expensePayable(team.id, card.amount, card.expenseAccount ?? "Event Expense", card.title)];
+      return [expensePayable(team.id, card.amount, card.expenseAccount ?? "Event Expense", getEventCardTitleKey(card.id))];
     case "accrual_prepaid":
-      return [prepaidPurchase(team.id, card.amount, card.title)];
+      return [prepaidPurchase(team.id, card.amount, getEventCardTitleKey(card.id))];
     case "credit_method_modifier":
       // No accounting now; sets a flag for the next payment (Phase 4).
       return [];
@@ -278,7 +278,7 @@ export interface ResolveChoiceInput {
 export function resolveChoice(gameId: string, teamId: string, input: ResolveChoiceInput): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   const pending = queries.pendingByGame(gameId);
   if (!pending) throw new GameError("NO_PENDING", "No pending action to resolve");
   if (pending.teamId !== teamId) throw new GameError("NOT_YOUR_TURN", "Not your pending action");
@@ -367,12 +367,12 @@ export function resolveChoice(gameId: string, teamId: string, input: ResolveChoi
           : loanPrincipalRepaid(teamId, amount);
       // Consequence: actually move cash for repay, or create loan for take.
       // We let the journal entry reflect it; cap loan by limit.
-      if (input.choice === "loan") {
-        const loanBal = balanceOf(teamId, "Loan Payable");
-        if (loanBal + amount > team2.creditLimit) {
-          throw new GameError("LOAN_LIMIT", `Loan would exceed credit limit ${team2.creditLimit}`);
-        }
-      } else if (input.choice === "repay") {
+    if (input.choice === "loan") {
+      const loanBal = balanceOf(teamId, "Loan Payable");
+      if (loanBal + amount > team2.creditLimit) {
+        throw new GameError("LOAN_LIMIT", `Loan would exceed credit limit ${team2.creditLimit}`, { creditLimit: team2.creditLimit });
+      }
+    } else if (input.choice === "repay") {
         const cash = balanceOf(teamId, "Cash");
         if (cash < amount) throw new GameError("INSUFFICIENT_CASH", "Not enough cash to repay");
       } else {
@@ -397,7 +397,7 @@ export function resolveChoice(gameId: string, teamId: string, input: ResolveChoi
 export function takeLoanForPendingFee(gameId: string, teamId: string, amount: number): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   const pending = queries.pendingByGame(gameId);
   if (!pending) throw new GameError("NO_PENDING", "No pending action");
   if (pending.teamId !== teamId) throw new GameError("NOT_YOUR_TURN", "Not your pending action");
@@ -409,7 +409,7 @@ export function takeLoanForPendingFee(gameId: string, teamId: string, amount: nu
   const team = queries.teamsByGame(gameId).find((t) => t.id === teamId)!;
   const loanBal = balanceOf(teamId, "Loan Payable");
   if (loanBal + amount > team.creditLimit) {
-    throw new GameError("LOAN_LIMIT", `Loan would exceed credit limit ${team.creditLimit}`);
+    throw new GameError("LOAN_LIMIT", `Loan would exceed credit limit ${team.creditLimit}`, { creditLimit: team.creditLimit });
   }
   const turnId = String(game.currentTurnNumber);
   postExpectedAsSystem(gameId, teamId, turnId, loanTaken(teamId, amount), team.currentYear);
@@ -491,7 +491,7 @@ function ownsFullColorGroup(properties: Property[], teamId: string, colorGroup: 
 export function buildHouse(gameId: string, teamId: string, propertyId: string): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   if (game.currentTeamId !== teamId) throw new GameError("NOT_YOUR_TURN", "It's not your turn");
   if (openPending(gameId)) throw new GameError("PENDING_ACTION", "Resolve the pending action first");
   if (queries.yearEndPendingByTeam(teamId)) {
@@ -525,7 +525,7 @@ export function submitJournalEntry(
 ): SubmitResult {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   const pending = queries.pendingByGame(gameId);
   if (!pending) throw new GameError("NO_PENDING", "No pending journal entry");
   if (pending.teamId !== teamId) throw new GameError("NOT_YOUR_TURN", "Not your turn to journal");
@@ -553,6 +553,7 @@ export function submitJournalEntry(
     teamId,
     turnId: String(game.currentTurnNumber),
     description: studentExpected.description,
+    descriptionParams: studentExpected.descriptionParams,
     sourceEventId: `journal-${pending.id}`,
     year: team.currentYear,
     isStudentSubmitted: true,
@@ -650,7 +651,7 @@ export function revealAnswer(gameId: string): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
   if (game.status !== "active" && game.status !== "paused") {
-    throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+    throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   }
   const pending = queries.pendingByGame(gameId);
   if (!pending) throw new GameError("NO_PENDING", "No pending action to reveal");
@@ -669,7 +670,8 @@ export function revealAnswer(gameId: string): void {
       gameId,
       teamId,
       turnId: String(game.currentTurnNumber),
-      description: `${studentExpected.description} (revealed by teacher)`,
+      description: studentExpected.description,
+      descriptionParams: studentExpected.descriptionParams,
       sourceEventId: `reveal-${pending.id}`,
       year: team.currentYear,
       isStudentSubmitted: false,
@@ -705,7 +707,7 @@ export function revealAnswer(gameId: string): void {
 export function endTurn(gameId: string): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`);
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
   if (game.turnPhase === "awaiting_roll") {
     throw new GameError("INVALID_STATE", "Roll the dice before ending your turn");
   }

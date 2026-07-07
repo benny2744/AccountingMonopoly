@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, saveSession } from "../api.js";
+import { useTranslation } from "../i18n/useTranslation.js";
+import { LanguageToggle } from "../i18n/LanguageToggle.js";
+import { getDifficultyLabel } from "@amono/shared/i18n";
 
 const RATIO_OPTIONS = [
   { label: "0%", value: 0 },
@@ -10,6 +13,7 @@ const RATIO_OPTIONS = [
 ];
 
 export default function CreateRoomPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [teacherPin, setTeacherPin] = useState("1234");
   const [difficulty, setDifficulty] = useState<"cash" | "accrual">("cash");
@@ -43,12 +47,15 @@ export default function CreateRoomPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
-        <h1 className="text-2xl font-bold mb-6">Create a Room</h1>
+        <div className="flex items-start justify-between mb-6">
+          <h1 className="text-2xl font-bold">{t("createRoomPage.title")}</h1>
+          <LanguageToggle />
+        </div>
         <div className="space-y-4">
-          <Field label="Teacher PIN">
+          <Field label={t("createRoomPage.teacherPin")}>
             <input className="input" value={teacherPin} onChange={(e) => setTeacherPin(e.target.value)} />
           </Field>
-          <Field label="Difficulty">
+          <Field label={t("createRoomPage.difficulty")}>
             <div className="flex gap-3">
               {(["cash", "accrual"] as const).map((d) => (
                 <button
@@ -58,15 +65,15 @@ export default function CreateRoomPage() {
                     difficulty === d ? "bg-indigo-600 text-white border-indigo-600" : "bg-white border-slate-300"
                   }`}
                 >
-                  {d === "cash" ? "Cash Basis" : "Accrual Basis"}
+                  {getDifficultyLabel(d)}
                 </button>
               ))}
             </div>
           </Field>
-          <Field label={`Number of teams: ${numberOfTeams}`}>
+          <Field label={t("createRoomPage.numberOfTeams", { count: numberOfTeams })}>
             <input type="range" min={2} max={4} value={numberOfTeams} onChange={(e) => setNumberOfTeams(Number(e.target.value))} className="w-full" />
           </Field>
-          <Field label="Property allocation at start">
+          <Field label={t("createRoomPage.propertyAllocation")}>
             <div className="flex gap-2">
               {RATIO_OPTIONS.map((o) => (
                 <button
@@ -82,10 +89,10 @@ export default function CreateRoomPage() {
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Starting cash">
+            <Field label={t("createRoomPage.startingCash")}>
               <input type="number" className="input" value={startingCash} onChange={(e) => setStartingCash(Number(e.target.value))} />
             </Field>
-            <Field label="Credit / loan limit">
+            <Field label={t("createRoomPage.creditLoanLimit")}>
               <input type="number" className="input" value={startingLoanLimit} onChange={(e) => setStartingLoanLimit(Number(e.target.value))} />
             </Field>
           </div>
@@ -95,7 +102,7 @@ export default function CreateRoomPage() {
             disabled={creating}
             className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
           >
-            {creating ? "Creating…" : "Create Room"}
+            {creating ? t("createRoomPage.creating") : t("createRoomPage.createRoom")}
           </button>
         </div>
       </div>

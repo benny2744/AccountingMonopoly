@@ -102,7 +102,7 @@ export function statementsView(teamId: string, year?: number): StatementsView {
   if (!teamRow) throw new GameError("NOT_FOUND", "Team not found");
   const targetYear = year ?? teamRow.current_year;
   if (!Number.isInteger(targetYear) || targetYear < 1 || targetYear > teamRow.current_year) {
-    throw new GameError("VALIDATION", `year must be 1..${teamRow.current_year}`);
+    throw new GameError("YEAR_OUT_OF_RANGE", `year must be 1..${teamRow.current_year}`, { min: 1, max: teamRow.current_year });
   }
 
   const accounts = queries.accountsByTeam(teamId);

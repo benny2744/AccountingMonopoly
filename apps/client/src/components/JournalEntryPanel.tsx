@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { api } from "../api.js";
 import { useGameStore } from "../store.js";
+import { useTranslation } from "../i18n/useTranslation.js";
 import { getChartOfAccounts } from "@amono/shared/accounting";
+import {
+  getAccountLabel,
+  getAccountTypeLabel,
+  getNormalBalanceLabel,
+  getJournalDescription,
+  getEntryDescription,
+} from "@amono/shared/i18n";
 import type { AccountType, Difficulty } from "@amono/shared";
 import type { PendingAction, TeamView } from "../api.js";
 
@@ -16,6 +24,7 @@ export default function JournalEntryPanel({
   currentTeam: TeamView;
   difficulty: Difficulty;
 }) {
+  const { t } = useTranslation();
   const setState = useGameStore((s) => s.setState);
   const [debit, setDebit] = useState("");
   const [credit, setCredit] = useState("");
@@ -31,7 +40,8 @@ export default function JournalEntryPanel({
     try {
       const r = await api.hint(gameId, next);
       setHintLevel(r.level);
-      setHintText(r.text);
+      const text = typeof r.text === "string" ? r.text : getEntryDescription((r.text as any).key, (r.text as any).params);
+      setHintText(text);
       setHintGated(r.gated);
     } catch (e) {
       setFeedback({ ok: false, text: (e as Error).message });
@@ -54,7 +64,7 @@ export default function JournalEntryPanel({
 
   async function submit() {
     if (!debit || !credit || amount <= 0) {
-      setFeedback({ ok: false, text: "Pick both accounts and enter a positive amount." });
+      setFeedback({ ok: false, text: t("journalEntryPanel.pickAccounts") });
       return;
     }
     try {
@@ -75,24 +85,24 @@ export default function JournalEntryPanel({
   return (
     <div className="bg-white rounded-2xl shadow p-5 border-t-4 border-indigo-500">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-bold text-lg">Record this transaction</h2>
+        <h2 className="font-bold text-lg">{t("journalEntryPanel.title")}</h2>
         <button
           onClick={() => setAmount(expectedAmount)}
           className="text-xs text-indigo-600 underline"
-          title="Fill the expected amount — account choices are still yours"
+          title={t("journalEntryPanel.fillAmountTooltip")}
         >
-          use expected amount (${expectedAmount})
+          {t("journalEntryPanel.fillAmount", { amount: expectedAmount })}
         </button>
       </div>
       <p className="text-sm text-slate-600 mb-3 bg-slate-50 rounded p-2">
-        {expected?.description ?? "Record a journal entry for this transaction."}
+        {expected ? getJournalDescription(expected) : t("journalEntryPanel.defaultDescription")}
       </p>
       {cashShort && (
         <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
           <div className="text-sm font-semibold text-amber-900 mb-1">
-            Your cash (${currentTeam.cash}) is short for this ${expectedAmount} payment.
+            {t("journalEntryPanel.cashShort", { cash: currentTeam.cash, amount: expectedAmount })}
           </div>
-          <div className="text-xs text-amber-800 mb-2">Take a bank loan first, then submit your journal entry.</div>
+          <div className="text-xs text-amber-800 mb-2">{t("journalEntryPanel.takeLoanFirst")}</div>
           <div className="flex items-center gap-2">
             <span className="text-sm">$</span>
             <input
@@ -100,21 +110,22 @@ export default function JournalEntryPanel({
               value={loanAmount || ""}
               onChange={(e) => setLoanAmount(Number(e.target.value))}
               className="border border-slate-300 rounded-lg px-3 py-2 w-32"
+              aria-label={t("journalEntryPanel.amountLabel")}
             />
             <button
               onClick={takeLoanForFee}
               className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90"
             >
-              Take Loan
+              {t("journalEntryPanel.takeLoan")}
             </button>
           </div>
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <AccountSelect label="Debit (Dr)" value={debit} onChange={setDebit} difficulty={difficulty} />
-        <AccountSelect label="Credit (Cr)" value={credit} onChange={setCredit} difficulty={difficulty} />
+        <AccountSelect label={t("journalEntryPanel.debit")} value={debit} onChange={setDebit} difficulty={difficulty} />
+        <AccountSelect label={t("journalEntryPanel.credit")} value={credit} onChange={setCredit} difficulty={difficulty} />
         <label className="block">
-          <span className="text-xs font-medium text-slate-600 block mb-1">Amount ($)</span>
+          <span className="text-xs font-medium text-slate-600 block mb-1">{t("journalEntryPanel.amountLabel")}</span>
           <input
             type="number"
             value={amount || ""}
@@ -130,7 +141,7 @@ export default function JournalEntryPanel({
             <ul className="mt-2 space-y-1 font-mono text-xs">
               {feedback.balanceChanges.map((c) => (
                 <li key={c.accountName}>
-                  {c.accountName}: {c.before} → {c.after}
+                  {getAccountLabel(c.accountName)}: {c.before} → {c.after}
                 </li>
               ))}
             </ul>
@@ -139,28 +150,28 @@ export default function JournalEntryPanel({
       )}
       <div className="flex gap-2 mt-3">
         <button onClick={submit} className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-indigo-700">
-          Submit Entry
+          {t("journalEntryPanel.submitEntry")}
         </button>
         <button
           onClick={showNextHint}
           disabled={hintLevel >= 4}
           className="border border-amber-300 bg-amber-50 text-amber-800 px-4 py-2 rounded-lg font-medium hover:bg-amber-100 disabled:opacity-50"
-          title={hintLevel === 0 ? "Get a hint — levels step from effect → accounts → direction → full answer" : `Hint level ${hintLevel} of 4`}
+          title={hintLevel === 0 ? t("journalEntryPanel.hintTooltip") : t("journalEntryPanel.hintLevelTooltip", { level: hintLevel })}
         >
-          {hintLevel === 0 ? "💡 Hint" : hintLevel >= 4 ? "Hints used" : `💡 Hint (${hintLevel}/4)`}
+          {hintLevel === 0 ? t("journalEntryPanel.hint") : hintLevel >= 4 ? t("journalEntryPanel.hintsUsed") : t("journalEntryPanel.hintCount", { level: hintLevel })}
         </button>
         <button
           onClick={() => { setDebit(""); setCredit(""); setAmount(0); setFeedback(null); setHintLevel(0); setHintText(null); }}
           className="border border-slate-300 px-4 py-2 rounded-lg"
         >
-          Clear
+          {t("journalEntryPanel.clear")}
         </button>
       </div>
       {hintText && (
         <div className="mt-3 rounded-lg p-3 text-sm bg-amber-50 border border-amber-200 text-amber-900">
-          <div className="font-semibold mb-1">Hint level {hintLevel} of 4</div>
+          <div className="font-semibold mb-1">{t("journalEntryPanel.hintLevelTooltip", { level: hintLevel })}</div>
           {hintText}
-          {hintGated && <div className="text-xs mt-1 italic">Full answer is teacher-gated — ask your teacher to reveal it.</div>}
+          {hintGated && <div className="text-xs mt-1 italic">{t("journalEntryPanel.fullHintGated")}</div>}
         </div>
       )}
     </div>
@@ -168,25 +179,28 @@ export default function JournalEntryPanel({
 }
 
 function AccountSelect({ label, value, onChange, difficulty }: { label: string; value: string; onChange: (v: string) => void; difficulty: Difficulty }) {
+  const { t } = useTranslation();
   const list = getChartOfAccounts(difficulty);
   const grouped: Record<string, { name: string; type: AccountType }[]> = {
-    Assets: list.filter((a) => a.type === "asset"),
-    Liabilities: list.filter((a) => a.type === "liability"),
-    Equity: list.filter((a) => a.type === "equity"),
-    Revenue: list.filter((a) => a.type === "revenue"),
-    Expenses: list.filter((a) => a.type === "expense"),
+    [t("journalEntryPanel.accountGroups.assets")]: list.filter((a) => a.type === "asset"),
+    [t("journalEntryPanel.accountGroups.liabilities")]: list.filter((a) => a.type === "liability"),
+    [t("journalEntryPanel.accountGroups.equity")]: list.filter((a) => a.type === "equity"),
+    [t("journalEntryPanel.accountGroups.revenue")]: list.filter((a) => a.type === "revenue"),
+    [t("journalEntryPanel.accountGroups.expenses")]: list.filter((a) => a.type === "expense"),
   };
   // Normal balance caption: assets & expenses are debit-normal; the rest are credit-normal.
-  const normalSide = (t: AccountType): "Dr" | "Cr" => (t === "asset" || t === "expense" ? "Dr" : "Cr");
+  const normalSide = (t: AccountType): "debit" | "credit" => (t === "asset" || t === "expense" ? "debit" : "credit");
   return (
     <label className="block">
       <span className="text-xs font-medium text-slate-600 block mb-1">{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2">
-        <option value="">— select —</option>
+        <option value="">{t("journalEntryPanel.selectAccount")}</option>
         {Object.entries(grouped).map(([group, accs]) => (
-          <optgroup key={group} label={`${group} (normal side shown)`}>
+          <optgroup key={group} label={group}>
             {accs.map((a) => (
-              <option key={a.name} value={a.name}>{a.name} · {normalSide(a.type)}</option>
+              <option key={a.name} value={a.name}>
+                {t("journalEntryPanel.accountOption", { name: getAccountLabel(a.name), side: getNormalBalanceLabel(normalSide(a.type)) })}
+              </option>
             ))}
           </optgroup>
         ))}

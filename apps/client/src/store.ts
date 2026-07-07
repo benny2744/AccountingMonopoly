@@ -5,6 +5,7 @@ import { api, clearSession, getStoredSessionToken, type GameState, type SessionI
 export interface SocketError {
   code: string;
   message: string;
+  params?: Record<string, unknown>;
   event?: string;
 }
 

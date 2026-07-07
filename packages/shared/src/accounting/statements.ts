@@ -34,6 +34,7 @@ export interface BalanceSheet {
 
 export interface CashSummaryLine {
   description: string;
+  descriptionParams?: Record<string, unknown>;
   amount: number;
 }
 
@@ -174,11 +175,12 @@ export function generateCashSummary(
     if (l.accountName !== "Cash") continue;
     const entry = entriesById.get(l.journalEntryId);
     const description = entry?.description ?? "";
+    const descriptionParams = entry?.descriptionParams;
     if (l.debit > 0) {
-      inflows.push({ description, amount: l.debit });
+      inflows.push({ description, descriptionParams, amount: l.debit });
       totalInflows += l.debit;
     } else if (l.credit > 0) {
-      outflows.push({ description, amount: l.credit });
+      outflows.push({ description, descriptionParams, amount: l.credit });
       totalOutflows += l.credit;
     }
   }

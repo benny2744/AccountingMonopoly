@@ -10,6 +10,7 @@ export class AccountingError extends Error {
   constructor(
     public code: string,
     message: string,
+    public params?: Record<string, string | number>,
   ) {
     super(message);
     this.name = "AccountingError";
@@ -45,6 +46,7 @@ export function postEntry(input: {
   teamId: string;
   turnId: string;
   description: string;
+  descriptionParams?: Record<string, unknown>;
   sourceEventId: string;
   year: number;
   isStudentSubmitted: boolean;
@@ -58,8 +60,8 @@ export function postEntry(input: {
   const entryId = uuid();
   const ts = now();
   const insertEntry = db.prepare(
-    `INSERT INTO journal_entries (id, game_id, team_id, turn_id, description, source_event_id, created_at, year, is_student_submitted, is_correct, attempt_outcome)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO journal_entries (id, game_id, team_id, turn_id, description, description_params, source_event_id, created_at, year, is_student_submitted, is_correct, attempt_outcome)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   insertEntry.run(
     entryId,
@@ -67,6 +69,7 @@ export function postEntry(input: {
     input.teamId,
     input.turnId,
     input.description,
+    input.descriptionParams ? JSON.stringify(input.descriptionParams) : null,
     input.sourceEventId,
     ts,
     input.year,
@@ -87,6 +90,7 @@ export function postEntry(input: {
         teamId: input.teamId,
         turnId: input.turnId,
         description: input.description,
+        descriptionParams: input.descriptionParams,
         sourceEventId: input.sourceEventId,
         createdAt: ts,
         year: input.year,
@@ -110,6 +114,7 @@ export function postExpectedAsSystem(
     teamId,
     turnId,
     description: expected.description,
+    descriptionParams: expected.descriptionParams,
     sourceEventId: `system-${turnId}`,
     year,
     isStudentSubmitted: false,

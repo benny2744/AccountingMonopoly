@@ -73,6 +73,7 @@ export function runMigrations(): void {
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
       turn_id TEXT NOT NULL,
       description TEXT NOT NULL,
+      description_params TEXT,
       source_event_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
       year INTEGER NOT NULL,
@@ -225,5 +226,11 @@ export function runMigrations(): void {
     } catch {
       // Column already present.
     }
+  }
+  // Phase 5: i18n — store translation params for journal entry descriptions.
+  try {
+    db.exec(`ALTER TABLE journal_entries ADD COLUMN description_params TEXT`);
+  } catch {
+    // Column already present.
   }
 }

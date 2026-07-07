@@ -11,7 +11,8 @@ export default defineConfig({
     alias: [
       { find: "@amono/shared/accounting", replacement: resolve(sharedRoot, "accounting/index.ts") },
       { find: "@amono/shared/game", replacement: resolve(sharedRoot, "game/index.ts") },
-      { find: "@amono/shared", replacement: resolve(sharedRoot, "index.ts") },
+      { find: "@amono/shared/i18n", replacement: resolve(sharedRoot, "i18n/index.ts") },
+      { find: "@amono/shared", replacement: sharedRoot },
     ],
   },
   server: {

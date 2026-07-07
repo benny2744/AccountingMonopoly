@@ -78,6 +78,7 @@ interface JERow {
   team_id: string;
   turn_id: string;
   description: string;
+  description_params: string | null;
   source_event_id: string;
   created_at: string;
   year: number;
@@ -230,6 +231,7 @@ export function rowToJE(r: JERow, lines: JournalEntryLine[]): JournalEntry {
     teamId: r.team_id,
     turnId: r.turn_id,
     description: r.description,
+    descriptionParams: r.description_params ? (JSON.parse(r.description_params) as Record<string, unknown>) : undefined,
     sourceEventId: r.source_event_id,
     createdAt: r.created_at,
     year: r.year,

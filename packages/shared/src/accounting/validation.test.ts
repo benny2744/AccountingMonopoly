@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import type { ExpectedEntry } from "../types.js";
 import { isAccountInMode } from "./accounts.js";
 import { getHint, validateJournalEntry } from "./validation.js";
 import { loanPrincipalRepaid, rentPaidCash } from "./entryRules.js";
+import { format, setLocale } from "../i18n/index.js";
 
 const expected = (over: Partial<ExpectedEntry> = {}): ExpectedEntry => ({
   teamId: "t-red",
@@ -84,30 +85,36 @@ describe("isAccountInMode", () => {
 });
 
 describe("getHint — PRD §17.4 four levels", () => {
+  beforeEach(() => setLocale("en"));
+
   const e = rentPaidCash("t-red", "t-blue", 100)[0]!;
   it("level 1: statement effect (mentions types)", () => {
     const h = getHint(e, 1);
-    expect(h).toMatch(/expense/i);
-    expect(h).toMatch(/asset/i);
+    const text = format(h.key, h.params);
+    expect(text).toMatch(/expense/i);
+    expect(text).toMatch(/asset/i);
   });
   it("level 2: account directions", () => {
     const h = getHint(e, 2);
-    expect(h).toContain("Rent Expense");
-    expect(h).toContain("Cash");
-    expect(h).toBe("Rent Expense increases. Cash decreases.");
+    const text = format(h.key, h.params);
+    expect(text).toContain("Rent Expense");
+    expect(text).toContain("Cash");
+    expect(text).toBe("Rent Expense increases. Cash decreases.");
   });
   it("level 2: debiting a credit-normal account says it decreases", () => {
-    // Regression: debit side must not blindly say "increases" (e.g. loan repayment).
     const repay = loanPrincipalRepaid("t-red", 200);
     const h = getHint(repay, 2);
-    expect(h).toBe("Loan Payable decreases. Cash decreases.");
+    const text = format(h.key, h.params);
+    expect(text).toBe("Loan Payable decreases. Cash decreases.");
   });
   it("level 3: debit/credit rule", () => {
     const h = getHint(e, 3);
-    expect(h.toLowerCase()).toMatch(/debit/);
+    const text = format(h.key, h.params);
+    expect(text.toLowerCase()).toMatch(/debit/);
   });
   it("level 4: full answer", () => {
     const h = getHint(e, 4);
-    expect(h).toBe("Dr Rent Expense 100, Cr Cash 100.");
+    const text = format(h.key, h.params);
+    expect(text).toBe("Dr Rent Expense 100, Cr Cash 100.");
   });
 });

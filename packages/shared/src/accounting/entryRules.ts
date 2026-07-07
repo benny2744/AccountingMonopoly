@@ -1,15 +1,17 @@
 import type { ExpectedEntry, ExpectedEntryLine } from "../types.js";
+import { getAccountKey, getPropertyKey } from "../i18n/labels.js";
 
 // PRD §22 — rule library mapping game events to expected journal entries.
 // Each function returns one or more ExpectedEntry objects (one per affected team).
-
-const desc = (s: string) => s;
+// Descriptions are i18n keys; params may contain other i18n keys which are
+// translated at display time by the i18n format() helper.
 
 // §7.2 Property assigned at setup
 export function propertyAssignedAtSetup(teamId: string, amount: number, propertyName: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Received ${propertyName} at setup; invested into the business as owner capital.`),
+    description: "entryRules.propertyAssignedAtSetup",
+    descriptionParams: { propertyName: getPropertyKey(propertyName) },
     lines: [
       { accountName: "Property", debit: amount, credit: 0 },
       { accountName: "Owner Capital", debit: 0, credit: amount },
@@ -21,7 +23,8 @@ export function propertyAssignedAtSetup(teamId: string, amount: number, property
 export function propertyPurchase(teamId: string, amount: number, propertyName: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Bought ${propertyName} for cash.`),
+    description: "entryRules.propertyPurchase",
+    descriptionParams: { propertyName: getPropertyKey(propertyName) },
     lines: [
       { accountName: "Property", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -32,7 +35,8 @@ export function propertyPurchase(teamId: string, amount: number, propertyName: s
 export function buildingPurchase(teamId: string, amount: number, propertyName: string, levelLabel: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Built a ${levelLabel} on ${propertyName} for cash.`),
+    description: "entryRules.buildingPurchase",
+    descriptionParams: { propertyName: getPropertyKey(propertyName), levelLabel: levelLabel === "hotel" ? "common.hotel" : "common.house" },
     lines: [
       { accountName: "Buildings", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -49,7 +53,7 @@ export function rentPaidCash(
   return [
     {
       teamId: payerTeamId,
-      description: desc("Paid rent to another team in cash; using another team's property is an expense."),
+      description: "entryRules.paidRentCash",
       lines: [
         { accountName: "Rent Expense", debit: amount, credit: 0 },
         { accountName: "Cash", debit: 0, credit: amount },
@@ -57,7 +61,7 @@ export function rentPaidCash(
     },
     {
       teamId: ownerTeamId,
-      description: desc("Received rent in cash; earning from renting property is revenue."),
+      description: "entryRules.receivedRentCash",
       lines: [
         { accountName: "Cash", debit: amount, credit: 0 },
         { accountName: "Rent Revenue", debit: 0, credit: amount },
@@ -75,7 +79,7 @@ export function rentPaidCredit(
   return [
     {
       teamId: payerTeamId,
-      description: desc("Owed rent to another team on credit; the obligation is Accounts Payable."),
+      description: "entryRules.owedRentCredit",
       lines: [
         { accountName: "Rent Expense", debit: amount, credit: 0 },
         { accountName: "Accounts Payable", debit: 0, credit: amount },
@@ -83,7 +87,7 @@ export function rentPaidCredit(
     },
     {
       teamId: ownerTeamId,
-      description: desc("Earned rent on credit; the amount owed to us is Accounts Receivable."),
+      description: "entryRules.earnedRentCredit",
       lines: [
         { accountName: "Accounts Receivable", debit: amount, credit: 0 },
         { accountName: "Rent Revenue", debit: 0, credit: amount },
@@ -101,7 +105,7 @@ export function rentPaidCreditLine(
   return [
     {
       teamId: payerTeamId,
-      description: desc("Used the bank credit line to pay rent; the bank paid the owner, we owe the bank."),
+      description: "entryRules.usedCreditLine",
       lines: [
         { accountName: "Rent Expense", debit: amount, credit: 0 },
         { accountName: "Credit Line Payable", debit: 0, credit: amount },
@@ -109,7 +113,7 @@ export function rentPaidCreditLine(
     },
     {
       teamId: ownerTeamId,
-      description: desc("Received rent in cash funded by the visitor's bank credit line."),
+      description: "entryRules.receivedRentCreditLine",
       lines: [
         { accountName: "Cash", debit: amount, credit: 0 },
         { accountName: "Rent Revenue", debit: 0, credit: amount },
@@ -122,7 +126,8 @@ export function rentPaidCreditLine(
 export function cashEventRevenue(teamId: string, amount: number, reason: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Received cash from an event (${reason}); this is event revenue.`),
+    description: "entryRules.cashEventRevenue",
+    descriptionParams: { reason },
     lines: [
       { accountName: "Cash", debit: amount, credit: 0 },
       { accountName: "Event Revenue", debit: 0, credit: amount },
@@ -139,7 +144,8 @@ export function cashEventExpense(
 ): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Paid cash for an event (${reason}); recorded as ${expenseAccount}.`),
+    description: "entryRules.cashEventExpense",
+    descriptionParams: { reason, expenseAccount: getAccountKey(expenseAccount) },
     lines: [
       { accountName: expenseAccount, debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -151,7 +157,8 @@ export function cashEventExpense(
 export function ownerCapitalContribution(teamId: string, amount: number, reason: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Owner contribution (${reason}); cash invested by owners increases equity, not revenue.`),
+    description: "entryRules.ownerCapitalContribution",
+    descriptionParams: { reason },
     lines: [
       { accountName: "Cash", debit: amount, credit: 0 },
       { accountName: "Owner Capital", debit: 0, credit: amount },
@@ -162,7 +169,7 @@ export function ownerCapitalContribution(teamId: string, amount: number, reason:
 export function repairPaidCash(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Paid cash for repairs; costs of maintaining property are Repair Expense."),
+    description: "entryRules.repairPaidCash",
     lines: [
       { accountName: "Repair Expense", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -173,7 +180,7 @@ export function repairPaidCash(teamId: string, amount: number): ExpectedEntry {
 export function repairBillPayable(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Received a repair bill due at year-end; recognize the expense now, owe later."),
+    description: "entryRules.repairBillPayable",
     lines: [
       { accountName: "Repair Expense", debit: amount, credit: 0 },
       { accountName: "Accounts Payable", debit: 0, credit: amount },
@@ -184,7 +191,8 @@ export function repairBillPayable(teamId: string, amount: number): ExpectedEntry
 export function expensePayable(teamId: string, amount: number, expenseAccount: string, reason: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`${reason}; recognize the expense now and record a payable for later payment.`),
+    description: "entryRules.expensePayable",
+    descriptionParams: { reason, expenseAccount: getAccountKey(expenseAccount) },
     lines: [
       { accountName: expenseAccount, debit: amount, credit: 0 },
       { accountName: "Accounts Payable", debit: 0, credit: amount },
@@ -195,7 +203,8 @@ export function expensePayable(teamId: string, amount: number, expenseAccount: s
 export function revenueReceivable(teamId: string, amount: number, revenueAccount: string, reason: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`${reason}; revenue is earned now even though cash arrives later (accrual).`),
+    description: "entryRules.revenueReceivable",
+    descriptionParams: { reason },
     lines: [
       { accountName: "Accounts Receivable", debit: amount, credit: 0 },
       { accountName: revenueAccount, debit: 0, credit: amount },
@@ -206,7 +215,8 @@ export function revenueReceivable(teamId: string, amount: number, revenueAccount
 export function prepaidPurchase(teamId: string, amount: number, reason: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Paid cash in advance (${reason}); record a Prepaid Services asset until used.`),
+    description: "entryRules.prepaidPurchase",
+    descriptionParams: { reason },
     lines: [
       { accountName: "Prepaid Services", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -217,7 +227,8 @@ export function prepaidPurchase(teamId: string, amount: number, reason: string):
 export function prepaidRecognition(teamId: string, amount: number, expenseAccount: string): ExpectedEntry {
   return {
     teamId,
-    description: desc(`Year-end: the prepaid service has been used; recognize ${expenseAccount}.`),
+    description: "entryRules.prepaidRecognition",
+    descriptionParams: { expenseAccount: getAccountKey(expenseAccount) },
     lines: [
       { accountName: expenseAccount, debit: amount, credit: 0 },
       { accountName: "Prepaid Services", debit: 0, credit: amount },
@@ -228,7 +239,7 @@ export function prepaidRecognition(teamId: string, amount: number, expenseAccoun
 export function loanTaken(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Borrowed from the bank; cash increases and a Loan Payable liability is created."),
+    description: "entryRules.loanTaken",
     lines: [
       { accountName: "Cash", debit: amount, credit: 0 },
       { accountName: "Loan Payable", debit: 0, credit: amount },
@@ -239,7 +250,7 @@ export function loanTaken(teamId: string, amount: number): ExpectedEntry {
 export function loanPrincipalRepaid(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Repaid loan principal with cash."),
+    description: "entryRules.loanPrincipalRepaid",
     lines: [
       { accountName: "Loan Payable", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -250,7 +261,7 @@ export function loanPrincipalRepaid(teamId: string, amount: number): ExpectedEnt
 export function interestPaidCash(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Paid interest on outstanding loan in cash."),
+    description: "entryRules.interestPaidCash",
     lines: [
       { accountName: "Interest Expense", debit: amount, credit: 0 },
       { accountName: "Cash", debit: 0, credit: amount },
@@ -261,7 +272,7 @@ export function interestPaidCash(teamId: string, amount: number): ExpectedEntry 
 export function interestAddedToLoan(teamId: string, amount: number): ExpectedEntry {
   return {
     teamId,
-    description: desc("Interest accrued but cash was insufficient; added to the loan balance."),
+    description: "entryRules.interestAddedToLoan",
     lines: [
       { accountName: "Interest Expense", debit: amount, credit: 0 },
       { accountName: "Loan Payable", debit: 0, credit: amount },
@@ -274,7 +285,7 @@ export function apPaidCash(debtorTeamId: string, creditorTeamId: string, amount:
   return [
     {
       teamId: debtorTeamId,
-      description: desc("Year-end: settled Accounts Payable with cash."),
+      description: "entryRules.apPaidCash",
       lines: [
         { accountName: "Accounts Payable", debit: amount, credit: 0 },
         { accountName: "Cash", debit: 0, credit: amount },
@@ -282,7 +293,7 @@ export function apPaidCash(debtorTeamId: string, creditorTeamId: string, amount:
     },
     {
       teamId: creditorTeamId,
-      description: desc("Year-end: collected the Accounts Receivable owed to us in cash."),
+      description: "entryRules.arCollectedCash",
       lines: [
         { accountName: "Cash", debit: amount, credit: 0 },
         { accountName: "Accounts Receivable", debit: 0, credit: amount },
@@ -296,7 +307,7 @@ export function apRolledToLoan(debtorTeamId: string, creditorTeamId: string, amo
   return [
     {
       teamId: debtorTeamId,
-      description: desc("Year-end: rolled Accounts Payable into a bank loan; we now owe the bank instead."),
+      description: "entryRules.apRolledToLoan",
       lines: [
         { accountName: "Accounts Payable", debit: amount, credit: 0 },
         { accountName: "Loan Payable", debit: 0, credit: amount },
@@ -304,7 +315,7 @@ export function apRolledToLoan(debtorTeamId: string, creditorTeamId: string, amo
     },
     {
       teamId: creditorTeamId,
-      description: desc("Year-end: bank paid the Accounts Receivable owed to us; collected in cash."),
+      description: "entryRules.arRolledToLoan",
       lines: [
         { accountName: "Cash", debit: amount, credit: 0 },
         { accountName: "Accounts Receivable", debit: 0, credit: amount },
@@ -324,7 +335,8 @@ export function multiTeamEventPay(
   const entries: ExpectedEntry[] = [
     {
       teamId: payerTeamId,
-      description: desc(`Paid each other team $${perTeamAmount} (${reason}); total event expense.`),
+      description: "entryRules.multiTeamPayPayer",
+      descriptionParams: { perTeamAmount, reason },
       lines: [
         { accountName: "Event Expense", debit: total, credit: 0 },
         { accountName: "Cash", debit: 0, credit: total },
@@ -334,7 +346,8 @@ export function multiTeamEventPay(
   for (const recipId of recipientTeamIds) {
     entries.push({
       teamId: recipId,
-      description: desc(`Received $${perTeamAmount} from another team (${reason}); event revenue.`),
+      description: "entryRules.multiTeamPayRecipient",
+      descriptionParams: { perTeamAmount, reason },
       lines: [
         { accountName: "Cash", debit: perTeamAmount, credit: 0 },
         { accountName: "Event Revenue", debit: 0, credit: perTeamAmount },
@@ -355,7 +368,8 @@ export function multiTeamEventCollect(
   const entries: ExpectedEntry[] = [
     {
       teamId: collectorTeamId,
-      description: desc(`Collected $${perTeamAmount} from each other team (${reason}); total event revenue.`),
+      description: "entryRules.multiTeamCollectCollector",
+      descriptionParams: { perTeamAmount, reason },
       lines: [
         { accountName: "Cash", debit: total, credit: 0 },
         { accountName: "Event Revenue", debit: 0, credit: total },
@@ -365,7 +379,8 @@ export function multiTeamEventCollect(
   for (const payerId of payerTeamIds) {
     entries.push({
       teamId: payerId,
-      description: desc(`Paid $${perTeamAmount} to another team (${reason}); event expense.`),
+      description: "entryRules.multiTeamCollectPayer",
+      descriptionParams: { perTeamAmount, reason },
       lines: [
         { accountName: "Event Expense", debit: perTeamAmount, credit: 0 },
         { accountName: "Cash", debit: 0, credit: perTeamAmount },

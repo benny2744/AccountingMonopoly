@@ -491,8 +491,10 @@ gamesRouter.get("/:gameId/scores", (_req, res, next) => {
 gamesRouter.get("/:gameId/export", async (req, res, next) => {
   try {
     const format = (req.query.format as string | undefined) ?? "json";
+    const lang = (req.query.lang as string | undefined) ?? "en";
+    const locale = lang === "zh-CN" ? "zh-CN" : "en";
     const { exportGame } = await import("../services/exportService.js");
-    const out = exportGame(req.params.gameId, format as "json" | "csv");
+    const out = exportGame(req.params.gameId, format as "json" | "csv", locale);
     if (format === "csv") {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="game-${req.params.gameId}.csv"`);
@@ -530,7 +532,7 @@ gamesRouter.get("/:gameId/teams/:teamId/statements", (req, res, next) => {
     if (req.query.year != null) {
       const parsed = Number(req.query.year);
       if (!Number.isInteger(parsed) || parsed < 1 || parsed > team.currentYear) {
-        throw new GameError("VALIDATION", `year must be 1..${team.currentYear}`);
+        throw new GameError("YEAR_OUT_OF_RANGE", `year must be 1..${team.currentYear}`, { min: 1, max: team.currentYear });
       }
       year = parsed;
     }
@@ -561,7 +563,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       err.code === "WRONG_GAME"
         ? 401
         : 400;
-    res.status(status).json({ error: { code: err.code, message: err.message } });
+    res.status(status).json({ error: { code: err.code, message: err.message, params: err.params } });
     return;
   }
   if (err instanceof z.ZodError) {

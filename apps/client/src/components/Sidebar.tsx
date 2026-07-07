@@ -1,3 +1,12 @@
+import { useTranslation } from "../i18n/useTranslation.js";
+import {
+  t,
+  getTeamNameLabel,
+  getSpaceLabel,
+  getPaymentMethodLabel,
+  getEventCardTitle,
+  getJournalDescription,
+} from "@amono/shared/i18n";
 import type { GameState } from "../api.js";
 
 export default function Sidebar({
@@ -9,10 +18,11 @@ export default function Sidebar({
   selectedTeamId: string | null;
   onSelectTeam: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <aside className="space-y-4">
       <div className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Teams</h2>
+        <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">{t("sidebar.teams")}</h2>
         <div className="space-y-2">
           {state.teams.map((tv) => {
             const selected = selectedTeamId === tv.team.id;
@@ -28,13 +38,14 @@ export default function Sidebar({
                 <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: tv.team.color }} />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm flex items-center gap-2">
-                    {tv.team.name}
-                    {isCurrent && <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded">turn</span>}
+                    {getTeamNameLabel(tv.team.name)}
+                    {isCurrent && <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 rounded">{t("teacherDashboard.turnBadge")}</span>}
                   </div>
                   <div className="text-xs text-slate-500">
-                    ${tv.cash} cash · {tv.propertyCount} props{tv.loanPayable > 0 ? ` · loan $${tv.loanPayable}` : ""}
+                    {t("sidebar.teamSummary", { cash: tv.cash, propertyCount: tv.propertyCount })}
+                    {tv.loanPayable > 0 && ` · ${t("sidebar.loanSuffix", { loan: tv.loanPayable })}`}
                     {(tv.accountsReceivable > 0 || tv.accountsPayable > 0) && (
-                      <> · <span className="text-emerald-700">A/R ${tv.accountsReceivable}</span> / <span className="text-rose-700">A/P ${tv.accountsPayable}</span></>
+                      <> · <span className="text-emerald-700">{t("sidebar.ar")} ${tv.accountsReceivable}</span> / <span className="text-rose-700">{t("sidebar.ap")} ${tv.accountsPayable}</span></>
                     )}
                   </div>
                 </div>
@@ -45,9 +56,9 @@ export default function Sidebar({
       </div>
 
       <div className="bg-white rounded-2xl shadow p-4">
-        <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">Game Log</h2>
+        <h2 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-3">{t("sidebar.gameLog")}</h2>
         <div className="space-y-1.5 max-h-72 overflow-y-auto text-sm">
-          {state.events.length === 0 && <div className="text-slate-400 text-xs">No events yet.</div>}
+          {state.events.length === 0 && <div className="text-slate-400 text-xs">{t("sidebar.noEvents")}</div>}
           {state.events.map((e) => (
             <div key={e.id} className="text-slate-700 border-l-2 border-slate-200 pl-2">
               <span className="text-slate-400 text-[10px] uppercase mr-1">{e.type}</span>
@@ -61,27 +72,70 @@ export default function Sidebar({
 }
 
 function formatEvent(type: string, payload: any, state: GameState): string {
-  const teamName = (id?: string) => state.teams.find((t) => t.team.id === id)?.team.name ?? id ?? "";
+  const teamName = (id?: string) => {
+    const name = id ? state.teams.find((t) => t.team.id === id)?.team.name : undefined;
+    return name ? getTeamNameLabel(name) : "";
+  };
+  const teamNameValue = teamName(payload.teamId);
   switch (type) {
     case "roll":
-      return `${teamName(payload.teamId)} rolled ${payload.total} (${payload.dice[0]}+${payload.dice[1]})`;
+      return t("gameEvent.roll", { teamName: teamNameValue, total: payload.total });
     case "move":
-      return payload.note ? `${payload.note}` : `${teamName(payload.teamId)} moved to space ${payload.position}`;
+      return payload.note === "Turn advanced"
+        ? t("gameEvent.teacherAdvanced")
+        : t("gameEvent.move", { teamName: teamNameValue });
     case "rent_due":
-      return `${teamName(payload.payer)} owes ${teamName(payload.owner)} $${payload.rent} rent`;
+      return t("gameEvent.rentDue", { payer: teamName(payload.payer), owner: teamName(payload.owner), rent: payload.rent });
     case "buy_property":
-      return `${teamName(payload.teamId)} bought a property for $${payload.price}`;
+      return t("gameEvent.boughtProperty", { teamName: teamNameValue, price: payload.price });
     case "interest_charged":
-      return `${teamName(payload.teamId)} interest $${payload.amount}${payload.rolledToLoan ? " (added to loan)" : ""}`;
+      return t("gameEvent.interestCharged", { teamName: teamNameValue, amount: payload.amount });
     case "draw_event_card":
-      return `${teamName(payload.teamId)} drew "${payload.title}"`;
+      return t("gameEvent.drewCard", { teamName: teamNameValue, title: getEventCardTitle(payload.cardId) });
     case "event_resolved":
-      return payload.note ?? "Resolved";
+      return payload.note ? translateNote(payload.note, teamNameValue) : t("gameEvent.eventResolved", { teamName: teamNameValue });
     case "loan_taken":
-      return `${teamName(payload.teamId)} bank: ${payload.kind} $${payload.amount}`;
+      return t("gameEvent.loanTaken", { teamName: teamNameValue, amount: payload.amount });
+    case "loan_repaid":
+      return t("gameEvent.loanRepaid", { teamName: teamNameValue, amount: payload.amount });
     case "year_end_started":
-      return `${teamName(payload.teamId)} passed GO`;
+      return t("gameEvent.yearEndStarted", { teamName: teamNameValue });
+    case "year_end_completed":
+      return t("gameEvent.yearEndCompleted", { teamName: teamNameValue });
+    case "teacher_override":
+      if (payload.action === "pause") return t("gameEvent.teacherPaused");
+      if (payload.action === "resume") return t("gameEvent.teacherResumed");
+      if (payload.action === "force_next_turn") return t("gameEvent.teacherAdvanced");
+      if (payload.action === "reveal_answer") return t("gameEvent.teacherRevealed");
+      if (payload.action === "end_game") return t("gameEvent.teacherEnded");
+      return t("gameEvent.teacherAction", { action: payload.action });
+    case "game_started":
+      return t("gameEvent.gameStarted");
     default:
       return type;
+  }
+}
+
+function translateNote(note: string, teamName: string): string {
+  switch (note) {
+    case "Own property":
+      return t("gameEvent.ownProperty");
+    case "Skipped buying property":
+      return t("gameEvent.skippedBuying");
+    case "Passed at bank":
+      return t("gameEvent.passedAtBank");
+    case "Journal entry posted":
+      return t("gameEvent.journalEntryPosted");
+    case "Payment method modifier (no journal entry)":
+      return t("gameEvent.paymentMethodModifier");
+    default:
+      if (getJournalDescription({ description: note })) {
+        return getJournalDescription({ description: note });
+      }
+      if (note.startsWith("Landed on ")) {
+        const space = note.replace("Landed on ", "").replace(" (no action)", "");
+        return t("gameEvent.noop", { teamName, space: getSpaceLabel(space) });
+      }
+      return note;
   }
 }

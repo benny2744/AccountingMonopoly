@@ -256,8 +256,8 @@ function emitError(socket: Socket, event: string, err: unknown, ack: Ack | undef
     socket.emit("game:error", { code: "VALIDATION", message: err.errors.map((e) => e.message).join("; ") });
     return;
   }
-  ack?.({ ok: false, error: { code, message } });
-  socket.emit("game:error", { code, message, event });
+  ack?.({ ok: false, error: { code, message, params: (err as GameError | AccountingError).params } });
+  socket.emit("game:error", { code, message, params: (err as GameError | AccountingError).params, event });
 }
 
 // Re-exported for service-layer callers that need to require team identity.
