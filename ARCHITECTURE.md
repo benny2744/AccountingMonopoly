@@ -60,14 +60,18 @@ directly from its TypeScript source (no build step required for dev).
 - Real-time: [`apps/server/src/socket.ts`](apps/server/src/socket.ts) — Socket.IO
   rooms keyed by `roomCode`, role guards, full-state `game:state_updated` broadcasts.
 - Persistence: [`apps/server/src/db/`](apps/server/src/db)
-  - `schema.ts`, `queries.ts`, `client.ts` (`node:sqlite`).
+  - `schema.ts`, `queries.ts`, `client.ts` (`node:sqlite`). `runMigrations()` calls
+    `backfillMissingAccounts()` so existing games gain new chart accounts without
+    manual DB edits.
 - REST: [`apps/server/src/routes/games.ts`](apps/server/src/routes/games.ts)
   (`/trade/propose`, `/trade/cancel`, union journal submit schema).
   [`apps/server/src/routes/admin.ts`](apps/server/src/routes/admin.ts) for
   teacher login.
 - Client UI: [`apps/client/src/components/`](apps/client/src/components),
   [`apps/client/src/routes/`](apps/client/src/routes) (`TeamDashboard`,
-  `TeacherDashboard`, `DisplayPage`, `LobbyPage`, `JoinPage`), and
+  `TeacherDashboard`, `DisplayPage`, `LobbyPage`, `JoinPage`),
+  [`apps/client/src/formatGameEvent.ts`](apps/client/src/formatGameEvent.ts)
+  (localized game-log strings for sidebar, display ticker, and board popups), and
   [`apps/client/src/store.ts`](apps/client/src/store.ts) (Zustand + Socket.IO).
 
 ## Request and event flow

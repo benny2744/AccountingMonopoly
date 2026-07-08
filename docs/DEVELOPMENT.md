@@ -133,7 +133,12 @@ The app supports multiple languages through a typed dictionary in
   translate the value.
 - `packages/shared/src/i18n/labels.ts` exports helper functions for dynamic
   data: `getTeamNameLabel`, `getSpaceLabel`, `getPropertyLabel`,
-  `getAccountLabel`, `getDifficultyLabel`, `getPaymentMethodLabel`, etc.
+  `getAccountLabel`, `getDifficultyLabel`, `getPaymentMethodLabel`,
+  `getJournalDescription`, etc.
+- Game log and projector ticker use `formatGameEvent()` in
+  `apps/client/src/formatGameEvent.ts` — add new `GameEvent` types there (and
+  matching `gameEvent.*` keys in both locale files). Cash flow and journal UI
+  resolve stored description keys through `getJournalDescription()`.
 - React components import `useTranslation()` from
   `apps/client/src/i18n/useTranslation.js`. The returned `t` function
   interpolates `{{param}}` placeholders.

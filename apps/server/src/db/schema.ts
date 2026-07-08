@@ -1,4 +1,38 @@
 import { getDb } from "./client.js";
+import { accounting } from "@amono/shared";
+import { uuid } from "../util/ids.js";
+
+const { getChartOfAccounts } = accounting;
+
+function normalBalanceFor(type: string): "debit" | "credit" {
+  return type === "asset" || type === "expense" ? "debit" : "credit";
+}
+
+/** Ensure every team has a row for each account in the current chart (idempotent). */
+function backfillMissingAccounts(): void {
+  const db = getDb();
+  const games = db.prepare("SELECT id, difficulty FROM games").all() as {
+    id: string;
+    difficulty: "cash" | "accrual";
+  }[];
+  const teamsStmt = db.prepare("SELECT id FROM teams WHERE game_id = ?");
+  const existingStmt = db.prepare("SELECT name FROM accounts WHERE team_id = ?");
+  const insertAcct = db.prepare(
+    `INSERT INTO accounts (id, game_id, team_id, name, type, normal_balance) VALUES (?,?,?,?,?,?)`,
+  );
+  for (const game of games) {
+    const coa = getChartOfAccounts(game.difficulty);
+    const teams = teamsStmt.all(game.id) as { id: string }[];
+    for (const team of teams) {
+      const existing = new Set((existingStmt.all(team.id) as { name: string }[]).map((r) => r.name));
+      for (const a of coa) {
+        if (!existing.has(a.name)) {
+          insertAcct.run(uuid(), game.id, team.id, a.name, a.type, normalBalanceFor(a.type));
+        }
+      }
+    }
+  }
+}
 
 // Hand-written SQL schema (Drizzle was specified in PLAN-02 but is not
 // available offline; node:sqlite provides the same synchronous API the plan
@@ -246,4 +280,5 @@ export function runMigrations(): void {
   } catch {
     // Column already present.
   }
+  backfillMissingAccounts();
 }

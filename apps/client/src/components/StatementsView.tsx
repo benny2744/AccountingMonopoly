@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useTranslation } from "../i18n/useTranslation.js";
-import { t, getAccountLabel, getTeamNameLabel } from "@amono/shared/i18n";
+import { getAccountLabel, getTeamNameLabel, getJournalDescription } from "@amono/shared/i18n";
 import type { TeamView, StatementsView } from "../api.js";
 
 type StmtTab = "statements" | "arap";
@@ -185,10 +185,29 @@ export default function StatementsView({
         <div className="text-sm space-y-1">
           <Row label={t("statementsView.beginningCash")} value={cash.beginning} />
           {cash.inflows.map((c, i) => (
-            <Row key={`in${i}`} label={t("statementsView.inflow", { description: c.description })} value={c.amount} positive />
+            <Row
+              key={`in${i}`}
+              label={t("statementsView.inflow", {
+                description: getJournalDescription({
+                  description: c.description,
+                  descriptionParams: c.descriptionParams,
+                }),
+              })}
+              value={c.amount}
+              positive
+            />
           ))}
           {cash.outflows.map((c, i) => (
-            <Row key={`out${i}`} label={t("statementsView.outflow", { description: c.description })} value={-c.amount} />
+            <Row
+              key={`out${i}`}
+              label={t("statementsView.outflow", {
+                description: getJournalDescription({
+                  description: c.description,
+                  descriptionParams: c.descriptionParams,
+                }),
+              })}
+              value={-c.amount}
+            />
           ))}
           <div className="pt-2 mt-2 border-t">
             <Row label={t("statementsView.endingCash")} value={cash.ending} strong big />
@@ -211,12 +230,17 @@ function Row({ label, value, strong, big, positive }: { label: string; value: nu
 }
 
 function Section({ title, rows, total }: { title: string; rows: { accountName: string; amount: number }[]; total: number }) {
+  const { t } = useTranslation();
   return (
     <div>
       <div className="font-semibold text-slate-500 uppercase text-xs mb-1">{title}</div>
       {rows.length === 0 && <div className="text-slate-400">{t("statementsView.emptySection")}</div>}
       {rows.map((r) => (
-        <Row key={r.accountName} label={getAccountLabel(r.accountName)} value={r.amount} />
+        <Row
+          key={r.accountName}
+          label={r.accountName === "Current Year Net Income" ? t("statements.currentYearNetIncome") : getAccountLabel(r.accountName)}
+          value={r.amount}
+        />
       ))}
       <Row label={`${t("common.total")} ${title}`} value={total} strong />
     </div>

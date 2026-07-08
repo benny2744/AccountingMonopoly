@@ -40,6 +40,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   account types, journal descriptions, attempt outcomes).
 
 ### Fixed
+- **Game log and cash flow showed raw i18n keys**: sidebar and display ticker now
+  use shared `formatGameEvent()` (no `EVENT_*` type prefix); cash flow inflows/outflows
+  resolve journal `description` keys via `getJournalDescription()`. Balance sheet
+  synthetic line **Current Year Net Income** uses `statements.currentYearNetIncome`.
+- **`ACCOUNT_NOT_FOUND` on trade seller journals in older games**: startup
+  `backfillMissingAccounts()` in `schema.ts` idempotently inserts any chart accounts
+  missing from existing team ledgers (e.g. **Gain on Sale** / **Loss on Sale**).
 - **Socket integration test flakiness**: `advanceToAwaitingEnd` journals as the
   pending owner (counterparty) and supports multi-line submit payloads.
 - **Vite alias for `@amono/shared` subpaths**: the production Docker build now

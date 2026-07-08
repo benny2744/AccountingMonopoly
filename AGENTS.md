@@ -68,6 +68,8 @@ Always run `pnpm build && pnpm test` before declaring a task done.
 | Bridge game events to accounting | `apps/server/src/services/accountingService.ts` |
 | REST endpoints | `apps/server/src/routes/games.ts` |
 | DB schema | `apps/server/src/db/schema.ts` |
+| Missing account rows after chart changes | `backfillMissingAccounts()` in `schema.ts` (runs on startup) |
+| Game log / event ticker copy | `apps/client/src/formatGameEvent.ts` |
 | Client store + socket connect | `apps/client/src/store.ts`, `apps/client/src/hooks/useRoomConnection.ts` |
 | Client screens | `apps/client/src/routes/` and `apps/client/src/components/` |
 

@@ -1,13 +1,6 @@
 import { useTranslation } from "../i18n/useTranslation.js";
-import {
-  t,
-  getTeamNameLabel,
-  getSpaceLabel,
-  getPaymentMethodLabel,
-  getEventCardTitle,
-  getJournalDescription,
-  getPropertyLabel,
-} from "@amono/shared/i18n";
+import { getTeamNameLabel } from "@amono/shared/i18n";
+import { formatGameEvent } from "../formatGameEvent.js";
 import type { GameState } from "../api.js";
 
 export default function Sidebar({
@@ -62,96 +55,11 @@ export default function Sidebar({
           {state.events.length === 0 && <div className="text-slate-400 text-xs">{t("sidebar.noEvents")}</div>}
           {state.events.map((e) => (
             <div key={e.id} className="text-slate-700 border-l-2 border-slate-200 pl-2">
-              <span className="text-slate-400 text-[10px] uppercase mr-1">{e.type}</span>
-              {formatEvent(e.type, e.payload, state)}
+              {formatGameEvent(e.type, e.payload as Record<string, unknown>, state)}
             </div>
           ))}
         </div>
       </div>
     </aside>
   );
-}
-
-function formatEvent(type: string, payload: any, state: GameState): string {
-  const teamName = (id?: string) => {
-    const name = id ? state.teams.find((t) => t.team.id === id)?.team.name : undefined;
-    return name ? getTeamNameLabel(name) : "";
-  };
-  const teamNameValue = teamName(payload.teamId);
-  switch (type) {
-    case "roll":
-      return t("gameEvent.roll", { teamName: teamNameValue, total: payload.total });
-    case "move":
-      return payload.note === "Turn advanced"
-        ? t("gameEvent.teacherAdvanced")
-        : t("gameEvent.move", { teamName: teamNameValue });
-    case "rent_due":
-      return t("gameEvent.rentDue", { payer: teamName(payload.payer), owner: teamName(payload.owner), rent: payload.rent });
-    case "buy_property":
-      return t("gameEvent.boughtProperty", { teamName: teamNameValue, price: payload.price });
-    case "interest_charged":
-      return t("gameEvent.interestCharged", { teamName: teamNameValue, amount: payload.amount });
-    case "draw_event_card":
-      return t("gameEvent.drewCard", { teamName: teamNameValue, title: getEventCardTitle(payload.cardId) });
-    case "event_resolved":
-      return payload.note ? translateNote(payload.note, teamNameValue) : t("gameEvent.eventResolved", { teamName: teamNameValue });
-    case "loan_taken":
-      return t("gameEvent.loanTaken", { teamName: teamNameValue, amount: payload.amount });
-    case "loan_repaid":
-      return t("gameEvent.loanRepaid", { teamName: teamNameValue, amount: payload.amount });
-    case "year_end_started":
-      return t("gameEvent.yearEndStarted", { teamName: teamNameValue });
-    case "year_end_completed":
-      return t("gameEvent.yearEndCompleted", { teamName: teamNameValue });
-    case "teacher_override":
-      if (payload.action === "pause") return t("gameEvent.teacherPaused");
-      if (payload.action === "resume") return t("gameEvent.teacherResumed");
-      if (payload.action === "force_next_turn") return t("gameEvent.teacherAdvanced");
-      if (payload.action === "reveal_answer") return t("gameEvent.teacherRevealed");
-      if (payload.action === "end_game") return t("gameEvent.teacherEnded");
-      return t("gameEvent.teacherAction", { action: payload.action });
-    case "game_started":
-      return t("gameEvent.gameStarted");
-    case "trade_proposed":
-      return t("gameEvent.tradeProposed", {
-        proposer: teamName(payload.proposerTeamId),
-        property: getPropertyLabel(payload.propertyName),
-        price: payload.price,
-      });
-    case "trade_accepted":
-      return t("gameEvent.tradeAccepted", {
-        property: getPropertyLabel(payload.propertyName),
-        price: payload.price,
-      });
-    case "trade_declined":
-      return t("gameEvent.tradeDeclined", { property: getPropertyLabel(payload.propertyName) });
-    case "trade_cancelled":
-      return t("gameEvent.tradeCancelled", { property: getPropertyLabel(payload.propertyName) });
-    default:
-      return type;
-  }
-}
-
-function translateNote(note: string, teamName: string): string {
-  switch (note) {
-    case "Own property":
-      return t("gameEvent.ownProperty");
-    case "Skipped buying property":
-      return t("gameEvent.skippedBuying");
-    case "Passed at bank":
-      return t("gameEvent.passedAtBank");
-    case "Journal entry posted":
-      return t("gameEvent.journalEntryPosted");
-    case "Payment method modifier (no journal entry)":
-      return t("gameEvent.paymentMethodModifier");
-    default:
-      if (getJournalDescription({ description: note })) {
-        return getJournalDescription({ description: note });
-      }
-      if (note.startsWith("Landed on ")) {
-        const space = note.replace("Landed on ", "").replace(" (no action)", "");
-        return t("gameEvent.noop", { teamName, space: getSpaceLabel(space) });
-      }
-      return note;
-  }
 }

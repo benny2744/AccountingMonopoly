@@ -3,15 +3,8 @@ import { useParams } from "react-router-dom";
 import { useGameStore } from "../store.js";
 import { useRoomConnection } from "../hooks/useRoomConnection.js";
 import { useTranslation } from "../i18n/useTranslation.js";
-import {
-  t,
-  getTeamNameLabel,
-  getSpaceLabel,
-  getAccountLabel,
-  getPaymentMethodLabel,
-  getEventCardTitle,
-  getEventCardDescription,
-} from "@amono/shared/i18n";
+import { getAccountLabel, getEventCardDescription, getEventCardTitle, getTeamNameLabel } from "@amono/shared/i18n";
+import { formatGameEvent } from "../formatGameEvent.js";
 import { getDeck } from "@amono/shared/game";
 import Board from "../components/Board.js";
 import Dice, { useDiceRoll } from "../components/Dice.js";
@@ -209,97 +202,10 @@ function EventTicker({ state }: { state: import("../api.js").GameState }) {
         {state.events.length === 0 && <div className="text-slate-400">{t("displayPage.noEvents")}</div>}
           {state.events.map((e) => (
             <div key={e.id} className="border-l-2 border-slate-200 pl-3">
-              <span className="text-slate-700">{describeEvent(e.type, e.payload as any, state)}</span>
+              <span className="text-slate-700">{formatGameEvent(e.type, e.payload as Record<string, unknown>, state)}</span>
             </div>
           ))}
       </div>
     </div>
   );
-}
-
-/** Plain-language event description for the projector ticker (PRD §28.3). */
-function describeEvent(type: string, p: any, state: import("../api.js").GameState): string {
-  const teamName = (id?: string) => {
-    const name = id ? state.teams.find((t) => t.team.id === id)?.team.name : undefined;
-    return name ? getTeamNameLabel(name) : "";
-  };
-  const teamNameValue = teamName(p.teamId);
-  switch (type) {
-    case "roll":
-      return t("gameEvent.roll", { teamName: teamNameValue, total: p.total });
-    case "move":
-      return p.note === "Turn advanced"
-        ? t("gameEvent.teacherAdvanced")
-        : t("gameEvent.move", { teamName: teamNameValue });
-    case "rent_due":
-      return t("gameEvent.rentDue", { payer: teamName(p.payer), owner: teamName(p.owner), rent: p.rent });
-    case "rent_paid_cash":
-    case "rent_paid_credit":
-    case "rent_paid_credit_line":
-      return t("gameEvent.rentPaid", {
-        teamName: teamNameValue,
-        method: getPaymentMethodLabel(rentPaidMethod(type)),
-      });
-    case "buy_property":
-      return t("gameEvent.boughtProperty", { teamName: teamNameValue, price: p.price });
-    case "draw_event_card":
-      return t("gameEvent.drewCard", { teamName: teamNameValue, title: getEventCardTitle(p.cardId) });
-    case "event_resolved":
-      return p.note ? translateNote(p.note, teamNameValue) : t("gameEvent.eventResolved", { teamName: teamNameValue });
-    case "interest_charged":
-      return t("gameEvent.interestCharged", { teamName: teamNameValue, amount: p.amount });
-    case "loan_taken":
-      return t("gameEvent.loanTaken", { teamName: teamNameValue, amount: p.amount });
-    case "loan_repaid":
-      return t("gameEvent.loanRepaid", { teamName: teamNameValue, amount: p.amount });
-    case "year_end_started":
-      return t("gameEvent.yearEndStarted", { teamName: teamNameValue });
-    case "year_end_completed":
-      return t("gameEvent.yearEndCompleted", { teamName: teamNameValue });
-    case "teacher_override":
-      if (p.action === "pause") return t("gameEvent.teacherPaused");
-      if (p.action === "resume") return t("gameEvent.teacherResumed");
-      if (p.action === "force_next_turn") return t("gameEvent.teacherAdvanced");
-      if (p.action === "reveal_answer") return t("gameEvent.teacherRevealed");
-      if (p.action === "end_game") return t("gameEvent.teacherEnded");
-      return t("gameEvent.teacherAction", { action: p.action });
-    case "game_started":
-      return t("gameEvent.gameStarted");
-    default:
-      return type.replace(/_/g, " ");
-  }
-}
-
-function rentPaidMethod(eventType: string): string {
-  switch (eventType) {
-    case "rent_paid_cash":
-      return "cash";
-    case "rent_paid_credit":
-      return "playerCredit";
-    case "rent_paid_credit_line":
-      return "creditLine";
-    default:
-      return eventType;
-  }
-}
-
-function translateNote(note: string, teamName: string): string {
-  switch (note) {
-    case "Own property":
-      return t("gameEvent.ownProperty");
-    case "Skipped buying property":
-      return t("gameEvent.skippedBuying");
-    case "Passed at bank":
-      return t("gameEvent.passedAtBank");
-    case "Journal entry posted":
-      return t("gameEvent.journalEntryPosted");
-    case "Payment method modifier (no journal entry)":
-      return t("gameEvent.paymentMethodModifier");
-    default:
-      if (note.startsWith("Landed on ")) {
-        const space = note.replace("Landed on ", "").replace(" (no action)", "");
-        return t("gameEvent.noop", { teamName, space: getSpaceLabel(space) });
-      }
-      return note;
-  }
 }

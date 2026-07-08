@@ -124,8 +124,8 @@ export interface BalanceSheet {
 }
 export interface CashSummary {
   beginning: number;
-  inflows: { description: string; amount: number }[];
-  outflows: { description: string; amount: number }[];
+  inflows: { description: string; descriptionParams?: Record<string, unknown>; amount: number }[];
+  outflows: { description: string; descriptionParams?: Record<string, unknown>; amount: number }[];
   totalInflows: number;
   totalOutflows: number;
   ending: number;
