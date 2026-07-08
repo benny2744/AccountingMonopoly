@@ -51,18 +51,21 @@ proxy, so room creation, rolls, and Socket.IO events all work end-to-end.
 
 ### Classroom flow (dev)
 
-1. Teacher: **My Games** (`/games`) or `/create` → lobby at `/lobby/:roomCode`.
+1. Teacher: sign in at **/login**, then **My Games** (`/games`) or `/create` →
+   lobby at `/lobby/:roomCode`.
 2. Students: `/join` or `/join/:code` → pick a team → `/game/:roomCode`.
 3. Teacher starts when at least two teams have joined (or uses "Start anyway").
 4. Optional projector display: `/display/:roomCode`.
 5. Multiple rooms: use `/games` to monitor cards and jump between teacher
    dashboards in one browser tab (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+6. **Multi-tab testing**: open teacher and team dashboards in separate tabs on
+   the same machine — each tab keeps its own session in `sessionStorage`.
 
 Session tokens are stored per game in `localStorage` (`amono.sessions`, keyed by
-`gameId`). The active game is tracked in `amono.activeGameId` (set from the
-route). A legacy single key (`amono.sessionToken`) is still read as fallback.
-Tokens are sent on REST (`Authorization: Bearer …`) and the Socket.IO handshake
-`auth.token`.
+`gameId`) and per tab in `sessionStorage` (`amono.tabSessions`). The active game
+is tracked in `amono.activeGameId` (set from the route). Tokens are sent on
+REST (`Authorization: Bearer …`, `X-Admin-Token` for teacher admin) and the
+Socket.IO handshake `auth.token`.
 
 ### Why two processes?
 
@@ -93,9 +96,17 @@ real linter (e.g. ESLint or oxlint) before relying on it.
 
 ## Environment variables
 
-None are required for local dev. The server reads/writes a SQLite database file
-in `data/` (gitignored). If you later add env-driven config, document it here
-and validate it with Zod at startup.
+None are required for local dev beyond optional teacher admin credentials.
+The server reads/writes a SQLite database file in `data/` (gitignored).
+
+| Variable | Default (dev) | Purpose |
+| --- | --- | --- |
+| `ADMIN_USERNAME` | `admin` | Teacher login username |
+| `ADMIN_PASSWORD` | `admin` | Teacher login password |
+| `ADMIN_SECRET` | dev default | HMAC secret for admin tokens |
+
+Set all three in production. The server logs a one-time warning if unset when
+`NODE_ENV=production`.
 
 ## Working with the shared package
 
@@ -144,6 +155,7 @@ hardcode English strings in React components or server error messages; emit a
   acceptance scenarios (`scenarioA.test.ts`, `scenarioB.test.ts`).
 - Server integration tests live in
   `apps/server/src/services/game.integration.test.ts` (REST),
+  `apps/server/src/services/trade.integration.test.ts` (property trading),
   `apps/server/src/services/socket.integration.test.ts` (Socket.IO + sessions), and
   `apps/server/src/services/scale.optimization.test.ts` (state-build + DB indexes).
 - Add a test whenever you touch accounting logic or a game rule. Match the

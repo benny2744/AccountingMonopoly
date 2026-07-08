@@ -1,9 +1,17 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { clearAdminToken, getAdminToken } from "../api.js";
 import { useTranslation } from "../i18n/useTranslation.js";
 import { LanguageToggle } from "../i18n/LanguageToggle.js";
 
 export default function LandingPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const isLoggedIn = !!getAdminToken();
+
+  function logout() {
+    clearAdminToken();
+    navigate("/");
+  }
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-10 max-w-md w-full text-center">
@@ -24,8 +32,17 @@ export default function LandingPage() {
           {t("landingPage.teacherHint")}{" "}
           {t("landingPage.displayHint")}
         </p>
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex justify-center gap-4 items-center">
           <LanguageToggle />
+          {isLoggedIn && (
+            <button
+              type="button"
+              onClick={logout}
+              className="text-sm text-slate-500 hover:text-slate-700 underline"
+            >
+              {t("landingPage.logout")}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -3,14 +3,15 @@ import { Router, type Router as RouterType } from "express";
 import { z } from "zod";
 import { networkInterfaces } from "node:os";
 import { createGame, startGame, GameError, pauseGame, resumeGame, forceNextTurn, addTeam, removeTeam } from "../services/gameService.js";
-import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee, buildHouse } from "../services/turnService.js";
+import { endTurn, resolveChoice, roll, submitJournalEntry, revealAnswer, takeLoanForPendingFee, buildHouse, proposeTrade, cancelTrade } from "../services/turnService.js";
 import { getGameState, ledgerView, statementsView, type GameState } from "../services/stateService.js";
 import { startYearEnd, resolveYearEndStep } from "../services/yearEndService.js";
 import { AccountingError } from "../services/accountingService.js";
 import { queries } from "../db/queries.js";
 import { accounting, game as gameData } from "@amono/shared";
+import { requireAdmin } from "../services/adminService.js";
 import {
-  createTeacherSession,
+  createTeacherSessionForGame,
   createTeamSession,
   createDisplaySession,
   getSession,
@@ -44,7 +45,6 @@ function publishState(req: Request, gameId: string): GameState {
 
 const createGameSchema = z.object({
   roomName: z.string().optional(),
-  teacherPin: z.string().min(1),
   difficulty: z.enum(["cash", "accrual"]),
   numberOfTeams: z.number().int().min(2).max(4),
   propertyAllocationRatio: z.union([z.literal(0), z.literal(0.25), z.literal(0.5), z.literal(0.75)]),
@@ -56,9 +56,10 @@ const createGameSchema = z.object({
 
 gamesRouter.post("/", (req, res, next) => {
   try {
+    requireAdmin(req.header("X-Admin-Token"));
     const input = createGameSchema.parse(req.body);
     const game = createGame(input);
-    const session = createTeacherSession(game.id, input.teacherPin);
+    const session = createTeacherSessionForGame(game.id);
     res.status(201).json({
       game,
       chart: accounting.getChartOfAccounts(game.difficulty),
@@ -103,13 +104,12 @@ gamesRouter.get("/by-code/:roomCode", (req, res, next) => {
 });
 
 // Join flows (Phase 3 §1, §3).
-const teacherJoinSchema = z.object({ teacherPin: z.string().min(1) });
 gamesRouter.post("/by-code/:roomCode/teacher-join", (req, res, next) => {
   try {
-    const { teacherPin } = teacherJoinSchema.parse(req.body);
+    requireAdmin(req.header("X-Admin-Token"));
     const game = queries.gameByRoomCode(req.params.roomCode);
     if (!game) throw new GameError("NOT_FOUND", "No room with that code");
-    const session = createTeacherSession(game.id, teacherPin);
+    const session = createTeacherSessionForGame(game.id);
     res.json({ sessionToken: session.token, gameId: game.id });
   } catch (e) {
     next(e);
@@ -175,13 +175,13 @@ gamesRouter.get("/:gameId/properties", (req, res, next) => {
   }
 });
 
-const startSchema = z.object({ teacherPin: z.string(), override: z.boolean().optional() });
+const startSchema = z.object({ override: z.boolean().optional() });
 gamesRouter.post("/:gameId/start", async (req, res, next) => {
   try {
-    const { teacherPin, override } = startSchema.parse(req.body);
+    const { override } = startSchema.parse(req.body);
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const game = await withGameLock(req.params.gameId, () =>
-      startGame(req.params.gameId, teacherPin, { overrideMinTeams: override }),
+      startGame(req.params.gameId, { overrideMinTeams: override }),
     );
     const state = publishState(req, game.id);
     res.json(state);
@@ -219,12 +219,23 @@ gamesRouter.post("/:gameId/resolve-event", async (req, res, next) => {
   }
 });
 
-const journalSchema = z.object({
-  teamId: z.string(),
-  debitAccount: z.string(),
-  creditAccount: z.string(),
-  amount: z.number().int().positive(),
+const journalLineSchema = z.object({
+  accountName: z.string(),
+  debit: z.number().int().nonnegative(),
+  credit: z.number().int().nonnegative(),
 });
+const journalSchema = z.union([
+  z.object({
+    teamId: z.string(),
+    debitAccount: z.string(),
+    creditAccount: z.string(),
+    amount: z.number().int().positive(),
+  }),
+  z.object({
+    teamId: z.string(),
+    lines: z.array(journalLineSchema).min(2),
+  }),
+]);
 gamesRouter.post("/:gameId/submit-journal-entry", async (req, res, next) => {
   try {
     const input = journalSchema.parse(req.body);
@@ -244,6 +255,43 @@ gamesRouter.post("/:gameId/build-house", async (req, res, next) => {
     const input = z.object({ teamId: z.string(), propertyId: z.string() }).parse(req.body);
     requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
     await withGameLock(req.params.gameId, () => buildHouse(req.params.gameId, input.teamId, input.propertyId));
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
+  } catch (e) {
+    next(e);
+  }
+});
+
+gamesRouter.post("/:gameId/trade/propose", async (req, res, next) => {
+  try {
+    const input = z
+      .object({
+        teamId: z.string(),
+        propertyId: z.string(),
+        price: z.number().int().positive(),
+        counterpartyTeamId: z.string().optional(),
+      })
+      .parse(req.body);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
+    await withGameLock(req.params.gameId, () =>
+      proposeTrade(req.params.gameId, input.teamId, {
+        propertyId: input.propertyId,
+        price: input.price,
+        counterpartyTeamId: input.counterpartyTeamId,
+      }),
+    );
+    const state = publishState(req, req.params.gameId);
+    res.json({ state });
+  } catch (e) {
+    next(e);
+  }
+});
+
+gamesRouter.post("/:gameId/trade/cancel", async (req, res, next) => {
+  try {
+    const input = z.object({ teamId: z.string() }).parse(req.body);
+    requireTeamSession(req.header("Authorization"), req.params.gameId, input.teamId);
+    await withGameLock(req.params.gameId, () => cancelTrade(req.params.gameId, input.teamId));
     const state = publishState(req, req.params.gameId);
     res.json({ state });
   } catch (e) {
@@ -451,12 +499,11 @@ gamesRouter.post("/:gameId/end", async (req, res, next) => {
 // Clone a game's settings into a new room ("Play again with same settings").
 gamesRouter.post("/:gameId/clone", async (req, res, next) => {
   try {
+    requireAdmin(req.header("X-Admin-Token"));
     requireTeacherSession(req.header("Authorization"), req.params.gameId);
     const src = queries.gameById(req.params.gameId);
     if (!src) throw new GameError("NOT_FOUND", "Game not found");
-    const { teacherPin } = z.object({ teacherPin: z.string().min(1) }).parse(req.body);
     const cloned = createGame({
-      teacherPin,
       difficulty: src.difficulty,
       numberOfTeams: queries.teamsByGame(src.id).length,
       propertyAllocationRatio: src.settings.propertyAllocationRatio,
@@ -465,7 +512,7 @@ gamesRouter.post("/:gameId/clone", async (req, res, next) => {
       allowStudentFullHint: src.settings.allowStudentFullHint,
       showScores: src.settings.showScores,
     });
-    const session = createTeacherSession(cloned.id, teacherPin);
+    const session = createTeacherSessionForGame(cloned.id);
     res.status(201).json({ game: cloned, sessionToken: session.token });
   } catch (e) {
     next(e);
@@ -564,6 +611,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (err instanceof GameError || err instanceof AccountingError) {
     const status =
       err.code === "NO_SESSION" ||
+      err.code === "NOT_ADMIN" ||
       err.code === "NOT_TEACHER" ||
       err.code === "NOT_YOUR_TEAM" ||
       err.code === "NOT_YOUR_TURN" ||

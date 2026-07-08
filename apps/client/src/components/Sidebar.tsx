@@ -6,6 +6,7 @@ import {
   getPaymentMethodLabel,
   getEventCardTitle,
   getJournalDescription,
+  getPropertyLabel,
 } from "@amono/shared/i18n";
 import type { GameState } from "../api.js";
 
@@ -111,6 +112,21 @@ function formatEvent(type: string, payload: any, state: GameState): string {
       return t("gameEvent.teacherAction", { action: payload.action });
     case "game_started":
       return t("gameEvent.gameStarted");
+    case "trade_proposed":
+      return t("gameEvent.tradeProposed", {
+        proposer: teamName(payload.proposerTeamId),
+        property: getPropertyLabel(payload.propertyName),
+        price: payload.price,
+      });
+    case "trade_accepted":
+      return t("gameEvent.tradeAccepted", {
+        property: getPropertyLabel(payload.propertyName),
+        price: payload.price,
+      });
+    case "trade_declined":
+      return t("gameEvent.tradeDeclined", { property: getPropertyLabel(payload.propertyName) });
+    case "trade_cancelled":
+      return t("gameEvent.tradeCancelled", { property: getPropertyLabel(payload.propertyName) });
     default:
       return type;
   }

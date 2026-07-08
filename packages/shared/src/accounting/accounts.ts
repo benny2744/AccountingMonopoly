@@ -13,8 +13,10 @@ export const CASH_BASIS_ACCOUNTS: readonly AccountDefinition[] = [
 
   { name: "Rent Revenue", type: "revenue" },
   { name: "Event Revenue", type: "revenue" },
+  { name: "Gain on Sale", type: "revenue" },
 
   { name: "Rent Expense", type: "expense" },
+  { name: "Loss on Sale", type: "expense" },
   { name: "Repair Expense", type: "expense" },
   { name: "Interest Expense", type: "expense" },
   { name: "Event Expense", type: "expense" },

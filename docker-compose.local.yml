@@ -1,0 +1,26 @@
+services:
+  amono:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: accounting-monopoly:latest
+    container_name: accounting-monopoly-local
+    ports:
+      # External host port is mapped to the container's default 5000 to avoid
+      # conflicts with other services on the host.  Port 4300 is the first
+      # port in a free 4300-range block; 4200 and 4211 are taken.
+      - "${AMONO_PORT:-4300}:5000"
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      DB_PATH: "/data/game.db"
+    volumes:
+      # Bind-mounted SQLite persists across rebuilds and restarts.
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s

@@ -71,7 +71,9 @@ Audit every student-facing state against the §28.1 checklist — students shoul
 The repo-root `README.md` and `docs/DEPLOYMENT.md` already cover install, dev, classroom/LAN run, room creation, and the display/join URLs (Phases 3–4). Remaining:
 
 - Resetting the database (delete `data/game.db`; path overridable via `DB_PATH`).
-- Implemented features vs known limitations (no auctions/houses/trades, single board preset, auto-posted year-end entries, deferred payment-method cards, etc.).
+- Implemented features vs known limitations (no auctions, single board preset,
+  auto-posted year-end entries, deferred payment-method cards, etc.). Property
+  trading is now implemented (was listed as post-MVP).
 - A root `pnpm dev` / `pnpm start` convenience script if the runbook references one (today only per-package `--filter` dev commands exist).
 
 ## 8. Optional (only if time remains, PRD marks optional)

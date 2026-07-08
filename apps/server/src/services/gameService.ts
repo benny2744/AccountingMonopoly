@@ -12,7 +12,6 @@ const { buildBoardForGame, DEFAULT_GAME_SETTINGS, teamColor, teamName } = gameDa
 
 export interface CreateGameInput {
   roomName?: string;
-  teacherPin: string;
   difficulty: "cash" | "accrual";
   numberOfTeams: number;
   propertyAllocationRatio: 0 | 0.25 | 0.5 | 0.75;
@@ -41,7 +40,7 @@ export function createGame(input: CreateGameInput): Game {
   ).run(
     id,
     code,
-    sha256(input.teacherPin),
+    sha256(uuid()),
     input.difficulty,
     "lobby",
     null,
@@ -122,13 +121,10 @@ function uniqueRoomCode(): string {
   return roomCode() + "0";
 }
 
-export function startGame(gameId: string, teacherPin: string, opts?: { overrideMinTeams?: boolean }): Game {
+export function startGame(gameId: string, opts?: { overrideMinTeams?: boolean }): Game {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
   if (game.status !== "lobby") throw new GameError("GAME_ALREADY_STARTED", "Game already started");
-  if (sha256(teacherPin) !== game.teacherPinHash) {
-    throw new GameError("INVALID_PIN", "Incorrect teacher PIN");
-  }
 
   const teams = queries.teamsByGame(gameId);
   if (teams.length < 2) throw new GameError("NOT_ENOUGH_TEAMS", "Need at least 2 teams", { min: 2 });

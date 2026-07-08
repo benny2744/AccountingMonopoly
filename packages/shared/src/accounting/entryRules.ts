@@ -390,6 +390,68 @@ export function multiTeamEventCollect(
   return entries;
 }
 
+/** Team-to-team property sale (seller side; may be 2 or 3 lines). */
+export function propertySaleSeller(
+  sellerTeamId: string,
+  price: number,
+  bookValue: number,
+  propertyName: string,
+): ExpectedEntry {
+  const descriptionParams = { propertyName: getPropertyKey(propertyName), price, bookValue };
+  if (price > bookValue) {
+    const gain = price - bookValue;
+    return {
+      teamId: sellerTeamId,
+      description: "entryRules.propertySold",
+      descriptionParams,
+      lines: [
+        { accountName: "Cash", debit: price, credit: 0 },
+        { accountName: "Property", debit: 0, credit: bookValue },
+        { accountName: "Gain on Sale", debit: 0, credit: gain },
+      ],
+    };
+  }
+  if (price < bookValue) {
+    const loss = bookValue - price;
+    return {
+      teamId: sellerTeamId,
+      description: "entryRules.propertySold",
+      descriptionParams,
+      lines: [
+        { accountName: "Cash", debit: price, credit: 0 },
+        { accountName: "Loss on Sale", debit: loss, credit: 0 },
+        { accountName: "Property", debit: 0, credit: bookValue },
+      ],
+    };
+  }
+  return {
+    teamId: sellerTeamId,
+    description: "entryRules.propertySold",
+    descriptionParams,
+    lines: [
+      { accountName: "Cash", debit: price, credit: 0 },
+      { accountName: "Property", debit: 0, credit: bookValue },
+    ],
+  };
+}
+
+/** Team-to-team property purchase (buyer side). */
+export function propertyTradeBuyer(
+  buyerTeamId: string,
+  price: number,
+  propertyName: string,
+): ExpectedEntry {
+  return {
+    teamId: buyerTeamId,
+    description: "entryRules.propertyBoughtFromTeam",
+    descriptionParams: { propertyName: getPropertyKey(propertyName), price },
+    lines: [
+      { accountName: "Property", debit: price, credit: 0 },
+      { accountName: "Cash", debit: 0, credit: price },
+    ],
+  };
+}
+
 // Convenience: build a single-team expected entry from arbitrary lines (used by tests).
 export function fromLines(teamId: string, description: string, lines: ExpectedEntryLine[]): ExpectedEntry {
   return { teamId, description, lines };

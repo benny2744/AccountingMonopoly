@@ -8,6 +8,8 @@ import { createApp } from "../app.js";
 import * as stateService from "../services/stateService.js";
 import type { GameState } from "../services/stateService.js";
 
+import { loginAdmin } from "../testHelpers.js";
+
 let port: number;
 let server: ReturnType<typeof createServer>;
 let app: express.Express;
@@ -52,12 +54,18 @@ afterEach(() => {
 });
 
 const B = () => `http://127.0.0.1:${port}`;
-async function post(path: string, body: unknown, token?: string): Promise<{ ok: boolean; status: number; json: unknown }> {
+async function post(
+  path: string,
+  body: unknown,
+  token?: string,
+  adminToken?: string,
+): Promise<{ ok: boolean; status: number; json: unknown }> {
   const r = await fetch(B() + path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -97,18 +105,24 @@ describe("scale optimizations", () => {
 
     const getStateSpy = vi.spyOn(stateService, "getGameState");
 
-    const { json: createJson } = await post("/api/games", {
-      teacherPin: "1234",
-      difficulty: "cash",
-      numberOfTeams: 2,
-      propertyAllocationRatio: 0.25,
-      startingCash: 1500,
-      startingLoanLimit: 500,
-    });
+    const adminToken = await loginAdmin(port);
+
+    const { json: createJson } = await post(
+      "/api/games",
+      {
+        difficulty: "cash",
+        numberOfTeams: 2,
+        propertyAllocationRatio: 0.25,
+        startingCash: 1500,
+        startingLoanLimit: 500,
+      },
+      undefined,
+      adminToken,
+    );
     const gameId = (createJson as { game: { id: string } }).game.id;
     const token = (createJson as { sessionToken: string }).sessionToken;
 
-    await post(`/api/games/${gameId}/start`, { teacherPin: "1234", override: true }, token);
+    await post(`/api/games/${gameId}/start`, { override: true }, token);
 
     getStateSpy.mockClear();
     broadcastState = undefined;

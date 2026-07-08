@@ -85,6 +85,8 @@ export interface Property {
   houseCost?: number;
   /** 0–4 houses; 5 represents a hotel. */
   houses: number;
+  /** Book value for resale; null in DB means use purchasePrice. */
+  costBasis?: number;
 }
 
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -145,7 +147,11 @@ export type GameEventType =
   | "year_end_started"
   | "year_end_completed"
   | "year_end_ar_collected"
-  | "teacher_override";
+  | "teacher_override"
+  | "trade_proposed"
+  | "trade_accepted"
+  | "trade_declined"
+  | "trade_cancelled";
 
 export interface GameEvent {
   id: string;
@@ -188,7 +194,10 @@ export type ValidationErrorCode =
   | "wrong_credit_account"
   | "wrong_amount"
   | "same_account"
-  | "account_not_in_mode";
+  | "account_not_in_mode"
+  | "unbalanced_entry"
+  | "invalid_line"
+  | "wrong_line_count";
 
 export interface ValidationResult {
   correct: boolean;

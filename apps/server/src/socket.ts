@@ -190,11 +190,24 @@ const resolveSchema = z.object({
   choice: z.string(),
   amount: z.number().int().positive().optional(),
 });
-const journalSchema = z.object({
-  debitAccount: z.string(),
-  creditAccount: z.string(),
-  amount: z.number().int().positive(),
-});
+const journalSchema = z.union([
+  z.object({
+    debitAccount: z.string(),
+    creditAccount: z.string(),
+    amount: z.number().int().positive(),
+  }),
+  z.object({
+    lines: z
+      .array(
+        z.object({
+          accountName: z.string(),
+          debit: z.number().int().nonnegative(),
+          credit: z.number().int().nonnegative(),
+        }),
+      )
+      .min(2),
+  }),
+]);
 
 type Ack = (response: unknown) => void;
 

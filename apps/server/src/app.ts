@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gamesRouter, errorHandler } from "./routes/games.js";
+import { adminRouter } from "./routes/admin.js";
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
@@ -12,6 +13,7 @@ export function createApp(): express.Express {
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
+  app.use("/api/admin", adminRouter);
   app.use("/api/games", gamesRouter);
 
   // Production: serve the built client bundle (Phase 3 §6).

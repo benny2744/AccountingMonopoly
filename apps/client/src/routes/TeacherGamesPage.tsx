@@ -20,7 +20,6 @@ export default function TeacherGamesPage() {
   const [rooms, setRooms] = useState<TeacherRoomEntry[]>(() => loadTeacherRooms());
   const [cards, setCards] = useState<CardData[]>([]);
   const [roomCode, setRoomCode] = useState("");
-  const [teacherPin, setTeacherPin] = useState("1234");
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -57,7 +56,7 @@ export default function TeacherGamesPage() {
     setAddError(null);
     try {
       const code = roomCode.trim().toUpperCase();
-      const { sessionToken, gameId } = await api.teacherJoin(code, teacherPin);
+      const { sessionToken, gameId } = await api.teacherJoin(code);
       saveSession(sessionToken, gameId);
       addTeacherRoom({ roomCode: code, gameId, label: code });
       setRoomCode("");
@@ -104,10 +103,6 @@ export default function TeacherGamesPage() {
                 onChange={(e) => setRoomCode(e.target.value)}
                 maxLength={5}
               />
-            </label>
-            <label className="block">
-              <span className="text-xs text-slate-500">{t("teacherGamesPage.teacherPin")}</span>
-              <input className="input mt-1 block w-28" value={teacherPin} onChange={(e) => setTeacherPin(e.target.value)} />
             </label>
             <button
               type="button"

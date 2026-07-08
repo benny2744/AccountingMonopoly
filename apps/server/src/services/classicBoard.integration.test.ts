@@ -37,7 +37,6 @@ beforeEach(() => {
 
 function makeStartedGame(): { gameId: string; teamIds: string[] } {
   const game = createGame({
-    teacherPin: "1234",
     difficulty: "cash",
     numberOfTeams: 2,
     propertyAllocationRatio: 0,
@@ -46,7 +45,7 @@ function makeStartedGame(): { gameId: string; teamIds: string[] } {
   });
   const teams = queries.teamsByGame(game.id);
   for (const t of teams) createTeamSession(game.id, t.id, "tester");
-  startGame(game.id, "1234");
+  startGame(game.id);
   return { gameId: game.id, teamIds: teams.map((t) => t.id) };
 }
 

@@ -28,6 +28,8 @@ const {
   prepaidPurchase,
   loanTaken,
   loanPrincipalRepaid,
+  propertySaleSeller,
+  propertyTradeBuyer,
 } = accounting;
 
 export interface PendingCreate {
@@ -382,6 +384,60 @@ export function resolveChoice(gameId: string, teamId: string, input: ResolveChoi
       logEvent(gameId, turnId, "loan_taken", { teamId, amount, kind: input.choice });
       return;
     }
+    case "trade_offer": {
+      const payload = pending.payload as {
+        propertyId: string;
+        name: string;
+        price: number;
+        buyerTeamId: string;
+        sellerTeamId: string;
+        proposerTeamId: string;
+      };
+      if (input.choice === "decline") {
+        markPendingDone(gameId);
+        logEvent(gameId, turnId, "trade_declined", {
+          teamId,
+          propertyId: payload.propertyId,
+          propertyName: payload.name,
+          proposerTeamId: payload.proposerTeamId,
+        });
+        return;
+      }
+      if (input.choice !== "accept") {
+        throw new GameError("BAD_CHOICE", "Unknown trade response");
+      }
+      const buyerCash = balanceOf(payload.buyerTeamId, "Cash");
+      if (buyerCash < payload.price) {
+        throw new GameError(
+          "INSUFFICIENT_CASH",
+          `Buyer does not have enough cash ($${buyerCash}) for trade price $${payload.price}.`,
+        );
+      }
+      const prop = queries.propertiesByGame(gameId).find((p) => p.id === payload.propertyId)!;
+      assertPropertyTradeable(prop);
+      if (prop.ownerTeamId !== payload.sellerTeamId) {
+        throw new GameError("INVALID_STATE", "Property ownership changed — trade is no longer valid");
+      }
+      const bookValue = propertyBookValue(prop);
+      queries.transferPropertyAfterTrade(prop.id, payload.buyerTeamId, payload.price);
+      const sellerEntry = propertySaleSeller(payload.sellerTeamId, payload.price, bookValue, payload.name);
+      const buyerEntry = propertyTradeBuyer(payload.buyerTeamId, payload.price, payload.name);
+      const ordered =
+        pending.teamId === payload.buyerTeamId
+          ? [buyerEntry, sellerEntry]
+          : [sellerEntry, buyerEntry];
+      updatePendingExpected(gameId, ordered, "awaiting_journal");
+      logEvent(gameId, turnId, "trade_accepted", {
+        teamId,
+        propertyId: payload.propertyId,
+        propertyName: payload.name,
+        price: payload.price,
+        buyerTeamId: payload.buyerTeamId,
+        sellerTeamId: payload.sellerTeamId,
+        bookValue,
+      });
+      return;
+    }
     default:
       throw new GameError("BAD_CHOICE", `Choice not expected for ${pending.kind}`);
   }
@@ -488,6 +544,123 @@ function ownsFullColorGroup(properties: Property[], teamId: string, colorGroup: 
 }
 
 /** Build a house or hotel on an owned street (full color group required). */
+function propertyBookValue(prop: Property): number {
+  return prop.costBasis ?? prop.purchasePrice;
+}
+
+function assertTeamsNotInYearEnd(...teamIds: string[]): void {
+  for (const id of teamIds) {
+    if (queries.yearEndPendingByTeam(id)) {
+      throw new GameError("YEAR_END_OPEN", "Finish year-end checklist before trading");
+    }
+  }
+}
+
+function assertPropertyTradeable(prop: Property): void {
+  if (prop.isMortgaged) throw new GameError("PROPERTY_NOT_TRADEABLE", "Mortgaged properties cannot be traded");
+  if (prop.houses > 0) throw new GameError("PROPERTY_NOT_TRADEABLE", "Properties with houses or hotels cannot be traded");
+}
+
+export interface ProposeTradeInput {
+  propertyId: string;
+  price: number;
+  counterpartyTeamId?: string;
+}
+
+export function proposeTrade(gameId: string, teamId: string, input: ProposeTradeInput): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
+  if (game.currentTeamId !== teamId) throw new GameError("NOT_YOUR_TURN", "Only the active team can propose a trade");
+  if (game.turnPhase !== "awaiting_end") {
+    throw new GameError("INVALID_STATE", "Trades can only be proposed before ending your turn");
+  }
+  if (openPending(gameId)) throw new GameError("PENDING_ACTION", "Resolve the pending action first");
+  if (!Number.isInteger(input.price) || input.price <= 0) {
+    throw new GameError("BAD_AMOUNT", "Trade price must be a positive integer");
+  }
+
+  const prop = queries.propertiesByGame(gameId).find((p) => p.id === input.propertyId);
+  if (!prop) throw new GameError("NOT_FOUND", "Property not found");
+  assertPropertyTradeable(prop);
+
+  const teams = queries.teamsByGame(gameId);
+  let buyerTeamId: string;
+  let sellerTeamId: string;
+
+  if (prop.ownerTeamId === teamId) {
+    if (!input.counterpartyTeamId) {
+      throw new GameError("BAD_INPUT", "Select a buyer when selling a property");
+    }
+    if (input.counterpartyTeamId === teamId) {
+      throw new GameError("BAD_INPUT", "Cannot trade with yourself");
+    }
+    if (!teams.some((t) => t.id === input.counterpartyTeamId)) {
+      throw new GameError("NOT_FOUND", "Counterparty team not found");
+    }
+    sellerTeamId = teamId;
+    buyerTeamId = input.counterpartyTeamId;
+  } else if (prop.ownerTeamId) {
+    sellerTeamId = prop.ownerTeamId;
+    buyerTeamId = teamId;
+    if (input.counterpartyTeamId && input.counterpartyTeamId !== sellerTeamId) {
+      throw new GameError("BAD_INPUT", "Buy offers must target the current owner");
+    }
+  } else {
+    throw new GameError("INVALID_STATE", "Unowned properties cannot be traded");
+  }
+
+  assertTeamsNotInYearEnd(teamId, buyerTeamId, sellerTeamId);
+
+  const responderTeamId = prop.ownerTeamId === teamId ? buyerTeamId : sellerTeamId;
+  setResolving(gameId);
+  createPending(gameId, responderTeamId, {
+    kind: "trade_offer",
+    payload: {
+      propertyId: prop.id,
+      name: prop.name,
+      price: input.price,
+      buyerTeamId,
+      sellerTeamId,
+      proposerTeamId: teamId,
+    },
+    expectedEntries: [],
+    status: "awaiting_choice",
+  });
+  logEvent(gameId, String(game.currentTurnNumber), "trade_proposed", {
+    proposerTeamId: teamId,
+    responderTeamId,
+    propertyId: prop.id,
+    propertyName: prop.name,
+    price: input.price,
+    buyerTeamId,
+    sellerTeamId,
+  });
+}
+
+export function cancelTrade(gameId: string, teamId: string): void {
+  const game = queries.gameById(gameId);
+  if (!game) throw new GameError("NOT_FOUND", "Game not found");
+  if (game.status !== "active") throw new GameError("INVALID_STATE", `Game is ${game.status}`, { status: game.status });
+  const pending = queries.pendingByGame(gameId);
+  if (!pending || pending.kind !== "trade_offer") {
+    throw new GameError("NO_PENDING", "No trade offer to cancel");
+  }
+  if (pending.status !== "awaiting_choice") {
+    throw new GameError("WRONG_STATE", "Trade offer can no longer be cancelled");
+  }
+  const payload = pending.payload as { proposerTeamId: string; propertyId: string; name: string };
+  if (payload.proposerTeamId !== teamId) {
+    throw new GameError("NOT_TRADE_PROPOSER", "Only the proposer can cancel this trade offer");
+  }
+  markPendingDone(gameId);
+  logEvent(gameId, String(game.currentTurnNumber), "trade_cancelled", {
+    teamId,
+    propertyId: payload.propertyId,
+    propertyName: payload.name,
+  });
+}
+
 export function buildHouse(gameId: string, teamId: string, propertyId: string): void {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
@@ -518,10 +691,14 @@ export function buildHouse(gameId: string, teamId: string, propertyId: string): 
   });
 }
 
+export type JournalSubmitInput =
+  | { debitAccount: string; creditAccount: string; amount: number }
+  | { lines: Array<{ accountName: string; debit: number; credit: number }> };
+
 export function submitJournalEntry(
   gameId: string,
   teamId: string,
-  input: { debitAccount: string; creditAccount: string; amount: number },
+  input: JournalSubmitInput,
 ): SubmitResult {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
@@ -537,17 +714,40 @@ export function submitJournalEntry(
     throw new GameError("NO_EXPECTED", "No journal entry expected for this action");
   }
   const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
-  const result = accounting.validateJournalEntry(input, studentExpected, game.difficulty);
+  const multiline = studentExpected.lines.length > 2;
+  let result;
+  let postedLines: Array<{ accountName: string; debit: number; credit: number }>;
+
+  if (multiline) {
+    if (!("lines" in input) || !input.lines) {
+      throw new GameError("BAD_INPUT", "This entry requires multi-line submission");
+    }
+    result = accounting.validateJournalEntryLines(input, studentExpected, game.difficulty);
+    postedLines = input.lines;
+  } else {
+    if ("lines" in input && input.lines) {
+      throw new GameError("BAD_INPUT", "Use debitAccount, creditAccount, and amount for two-line entries");
+    }
+    const legacy = input as { debitAccount: string; creditAccount: string; amount: number };
+    result = accounting.validateJournalEntry(legacy, studentExpected, game.difficulty);
+    postedLines = [
+      { accountName: legacy.debitAccount, debit: legacy.amount, credit: 0 },
+      { accountName: legacy.creditAccount, debit: 0, credit: legacy.amount },
+    ];
+  }
   bumpAttempts(gameId);
 
   if (!result.correct) {
     return { correct: false, feedback: result.feedback, errors: result.errors, attempts: pending.attempts + 1 };
   }
 
-  const beforeDebit = balanceOf(teamId, input.debitAccount);
-  const beforeCredit = balanceOf(teamId, input.creditAccount);
+  const balanceSnapshots = new Map<string, number>();
+  for (const line of postedLines) {
+    if (!balanceSnapshots.has(line.accountName)) {
+      balanceSnapshots.set(line.accountName, balanceOf(teamId, line.accountName));
+    }
+  }
 
-  // Post the student's entry (single debit + single credit per PRD §17.1 form).
   postEntry({
     gameId,
     teamId,
@@ -559,10 +759,7 @@ export function submitJournalEntry(
     isStudentSubmitted: true,
     isCorrect: true,
     attemptOutcome: pending.attempts === 0 ? "first_try" : "retry",
-    lines: [
-      { accountName: input.debitAccount, debit: input.amount, credit: 0 },
-      { accountName: input.creditAccount, debit: 0, credit: input.amount },
-    ],
+    lines: postedLines,
   });
 
   // Counterparty entries: instead of auto-posting, chain to the next
@@ -585,7 +782,9 @@ export function submitJournalEntry(
       ? "rent receipt"
       : pending.kind === "event_card"
         ? "event-card transfer"
-        : pending.kind;
+        : pending.kind === "trade_offer"
+          ? "property trade"
+          : pending.kind;
     const priorPayload = pending.payload as { counterpartyOf?: string; counterpartyName?: string };
     // Preserve the original counterparty (card drawer / rent payer) across
     // multi-receiver chains so receiver N+1 still sees the true source.
@@ -615,10 +814,11 @@ export function submitJournalEntry(
       feedback: result.feedback,
       errors: [],
       attempts: pending.attempts + 1,
-      balanceChanges: [
-        { accountName: input.debitAccount, before: beforeDebit, after: balanceOf(teamId, input.debitAccount) },
-        { accountName: input.creditAccount, before: beforeCredit, after: balanceOf(teamId, input.creditAccount) },
-      ],
+      balanceChanges: [...balanceSnapshots.entries()].map(([accountName, before]) => ({
+        accountName,
+        before,
+        after: balanceOf(teamId, accountName),
+      })),
       chainedTo: next.teamId,
       chainedToName: receiverTeam?.name,
     };
@@ -635,10 +835,11 @@ export function submitJournalEntry(
     feedback: result.feedback,
     errors: [],
     attempts: pending.attempts + 1,
-    balanceChanges: [
-      { accountName: input.debitAccount, before: beforeDebit, after: balanceOf(teamId, input.debitAccount) },
-      { accountName: input.creditAccount, before: beforeCredit, after: balanceOf(teamId, input.creditAccount) },
-    ],
+    balanceChanges: [...balanceSnapshots.entries()].map(([accountName, before]) => ({
+      accountName,
+      before,
+      after: balanceOf(teamId, accountName),
+    })),
   };
 }
 
@@ -663,9 +864,7 @@ export function revealAnswer(gameId: string): void {
     throw new GameError("NO_EXPECTED", "No journal entry to reveal");
   }
   const studentExpected = expectedEntries.find((e) => e.teamId === teamId) ?? expectedEntries[0]!;
-  const debitLine = studentExpected.lines.find((l) => l.debit > 0);
-  const creditLine = studentExpected.lines.find((l) => l.credit > 0);
-  if (debitLine && creditLine) {
+  if (studentExpected.lines.length > 0) {
     postEntry({
       gameId,
       teamId,
@@ -677,10 +876,11 @@ export function revealAnswer(gameId: string): void {
       isStudentSubmitted: false,
       isCorrect: true,
       attemptOutcome: "revealed",
-      lines: [
-        { accountName: debitLine.accountName, debit: debitLine.debit, credit: 0 },
-        { accountName: creditLine.accountName, debit: 0, credit: creditLine.credit },
-      ],
+      lines: studentExpected.lines.map((l) => ({
+        accountName: l.accountName,
+        debit: l.debit,
+        credit: l.credit,
+      })),
     });
   }
   // Teacher reveal always auto-posts every remaining counterparty so the
@@ -694,13 +894,16 @@ export function revealAnswer(gameId: string): void {
     queries.incrementPropertyHouses((pending.payload as { propertyId: string }).propertyId);
   }
   markPendingDone(gameId);
+  const firstDebit = studentExpected.lines.find((l) => l.debit > 0);
+  const firstCredit = studentExpected.lines.find((l) => l.credit > 0);
   logEvent(gameId, null, "teacher_override", {
     action: "reveal_answer",
     teamId,
     description: studentExpected.description,
-    debitAccount: debitLine?.accountName,
-    creditAccount: creditLine?.accountName,
-    amount: debitLine?.debit,
+    debitAccount: firstDebit?.accountName,
+    creditAccount: firstCredit?.accountName,
+    amount: firstDebit?.debit,
+    lineCount: studentExpected.lines.length,
   });
 }
 

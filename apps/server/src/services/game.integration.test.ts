@@ -5,9 +5,11 @@ import express from "express";
 import { openDb, closeDb, getDb } from "../db/client.js";
 import { runMigrations } from "../db/schema.js";
 import { createApp } from "../app.js";
+import { loginAdmin } from "../testHelpers.js";
 
 let port: number;
 let server: ReturnType<typeof createServer>;
+let adminToken: string;
 
 beforeAll(async () => {
   openDb(":memory:");
@@ -16,6 +18,7 @@ beforeAll(async () => {
   server = createServer(app);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   port = (server.address() as AddressInfo).port;
+  adminToken = await loginAdmin(port);
 });
 
 afterAll(async () => {
@@ -54,6 +57,7 @@ async function post(path: string, body: any, token?: string): Promise<{ ok: bool
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-Admin-Token": adminToken,
     },
     body: JSON.stringify(body),
   });
@@ -68,7 +72,6 @@ async function createGameWithSession(opts: {
   difficulty?: "cash" | "accrual";
 } = {}): Promise<{ gameId: string; token: string; teamTokens: Record<string, string> }> {
   const { json } = await post("/api/games", {
-    teacherPin: "1234",
     difficulty: opts.difficulty ?? "cash",
     numberOfTeams: opts.numberOfTeams ?? 3,
     propertyAllocationRatio: opts.propertyAllocationRatio ?? 0.25,
@@ -92,7 +95,7 @@ async function createGameWithOptions(opts: {
   numberOfTeams?: number;
 } = {}): Promise<string> {
   const { gameId, token } = await createGameWithSession(opts);
-  await post(`/api/games/${gameId}/start`, { teacherPin: "1234" }, token);
+  await post(`/api/games/${gameId}/start`, {}, token);
   return gameId;
 }
 
@@ -102,7 +105,7 @@ async function createAndStart(): Promise<string> {
 
 async function tokensFor(gameId: string): Promise<{ token: string; teamTokens: Record<string, string> }> {
   const state = await get(`/api/games/${gameId}`);
-  const teacherJoin = await post(`/api/games/by-code/${state.game.roomCode}/teacher-join`, { teacherPin: "1234" });
+  const teacherJoin = await post(`/api/games/by-code/${state.game.roomCode}/teacher-join`, {});
   const teamTokens: Record<string, string> = {};
   for (const tv of state.teams) {
     const j = await post(`/api/games/${gameId}/join`, { teamId: tv.team.id });
@@ -231,21 +234,21 @@ describe("game lifecycle (Phase 2 integration)", () => {
     }
   });
 
-  it("rejects incorrect teacher PIN on start", async () => {
-    const { gameId, token } = await createGameWithSession({ numberOfTeams: 2, propertyAllocationRatio: 0 });
-    // Use a separate game created without a session to test PIN rejection.
-    const { json } = await post("/api/games", {
-      teacherPin: "1234",
-      difficulty: "cash",
-      numberOfTeams: 2,
-      propertyAllocationRatio: 0,
-      startingCash: 1500,
-      startingLoanLimit: 500,
+  it("rejects game creation without admin token", async () => {
+    const r = await fetch(B() + "/api/games", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        difficulty: "cash",
+        numberOfTeams: 2,
+        propertyAllocationRatio: 0,
+        startingCash: 1500,
+        startingLoanLimit: 500,
+      }),
     });
-    void gameId; void token;
-    const res = await post(`/api/games/${json.game.id}/start`, { teacherPin: "wrong" }, json.sessionToken);
-    expect(res.ok).toBe(false);
-    expect(res.json.error.code).toBe("INVALID_PIN");
+    const json = (await r.json()) as { error: { code: string } };
+    expect(r.ok).toBe(false);
+    expect(json.error.code).toBe("NOT_ADMIN");
   });
 
   it("drives a full turn with a journal entry and verifies posting", async () => {
@@ -428,7 +431,6 @@ describe("game lifecycle (Phase 2 integration)", () => {
 
   it("add after remove reuses vacated name slot without collision", async () => {
     const { json } = await post("/api/games", {
-      teacherPin: "1234",
       difficulty: "cash",
       numberOfTeams: 2,
       propertyAllocationRatio: 0,
@@ -488,7 +490,7 @@ describe("game lifecycle (Phase 2 integration)", () => {
 
   it("cannot add or remove teams after the game starts", async () => {
     const { gameId, token } = await createGameWithSession({ numberOfTeams: 2 });
-    await post(`/api/games/${gameId}/start`, { teacherPin: "1234" }, token);
+    await post(`/api/games/${gameId}/start`, {}, token);
     const add = await post(`/api/games/${gameId}/teams`, {}, token);
     expect(add.ok).toBe(false);
     expect(add.json.error?.code).toBe("INVALID_STATE");

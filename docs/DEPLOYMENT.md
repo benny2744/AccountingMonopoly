@@ -41,6 +41,14 @@ server.
 
 ## Run the server
 
+Set teacher admin credentials (recommended for production):
+
+```bash
+export ADMIN_USERNAME=teacher
+export ADMIN_PASSWORD=your-strong-password
+export ADMIN_SECRET=some-long-random-string
+```
+
 ```bash
 pnpm --filter @amono/server start
 ```
@@ -77,20 +85,22 @@ Example: if the host is `10.0.5.137`:
 
 ## Running a class session
 
-1. **Teacher** opens the host URL in a browser and clicks **My Games** or
-   **Create Teacher Room**.
-2. Fill in room name, teacher PIN, difficulty (Cash or Accrual), number of
-   teams, property allocation, starting cash, and credit limit.
+1. **Teacher** opens the host URL in a browser and signs in at **/login** (or
+   clicks **My Games** / **Create Teacher Room**, which redirects to login).
+2. Fill in difficulty (Cash or Accrual), number of teams, property allocation,
+   starting cash, and credit limit.
 3. The lobby shows a **room code** and a copyable **join URL**. Share the URL
    (or the room code) with students.
 4. **Students** open the URL on their devices, pick a team, and wait in the lobby.
 5. Teacher clicks **Start**. Turns proceed server-side; only the current team
    can roll.
 6. After each money event, the active student submits a journal entry. The
-   server validates it and (per the room's journal entry mode) auto-posts the
-   counterparty entry. Event cards and tax tiles show a reveal popup (with
-   signed amounts) before the journal form; both wait until dice and piece
-   movement finish. All event-card expenses post to **Event Expense**.
+   server validates it; rent and trades chain to the counterparty for their
+   entry. During `awaiting_end`, the active team may propose a **property trade**
+   (buy/sell); the other team accepts or declines. Event cards and tax tiles
+   show a reveal popup (with signed amounts) before the journal form; both wait
+   until dice and piece movement finish. All event-card expenses post to
+   **Event Expense**.
 7. Teacher can pause/resume, force the next turn, reveal the correct entry
    (with confirmation), override mistakes, end the game, clone settings for a
    new room, and trigger year-end from the teacher dashboard.
@@ -99,7 +109,7 @@ Example: if the host is `10.0.5.137`:
    as a card with live status and stuck-team badges. Click **Open dashboard**
    to jump into that room; use **← My games** on the dashboard to switch back.
    Per-game session tokens are saved in the browser so one tab can manage
-   several rooms without re-entering PINs.
+   several rooms without re-authenticating.
 9. Open the **Display** URL on the projector for the shared board, leaderboard,
    and celebration banners.
 10. At the end, use **Export** to download the game summary as JSON or CSV.

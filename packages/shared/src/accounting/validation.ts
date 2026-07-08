@@ -14,7 +14,120 @@ export interface JournalEntryInput {
   amount: number;
 }
 
+export interface JournalEntryLineInput {
+  accountName: string;
+  debit: number;
+  credit: number;
+}
+
+export interface JournalEntryLinesInput {
+  lines: JournalEntryLineInput[];
+}
+
 const eq = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+function isPositiveInteger(n: number): boolean {
+  return Number.isInteger(n) && n > 0;
+}
+
+function matchLines(
+  expected: { accountName: string; amount: number }[],
+  actual: { accountName: string; amount: number }[],
+  side: "debit" | "credit",
+): ValidationErrorCode[] {
+  const errors: ValidationErrorCode[] = [];
+  const pool = [...actual];
+  for (const exp of expected) {
+    const idx = pool.findIndex((a) => eq(a.accountName, exp.accountName) && a.amount === exp.amount);
+    if (idx >= 0) {
+      pool.splice(idx, 1);
+      continue;
+    }
+    const accountMatch = pool.find((a) => eq(a.accountName, exp.accountName));
+    if (accountMatch) {
+      errors.push("wrong_amount");
+      pool.splice(pool.indexOf(accountMatch), 1);
+    } else {
+      errors.push(side === "debit" ? "wrong_debit_account" : "wrong_credit_account");
+    }
+  }
+  for (const leftover of pool) {
+    errors.push(leftover.accountName ? (side === "debit" ? "wrong_debit_account" : "wrong_credit_account") : "invalid_line");
+  }
+  return errors;
+}
+
+export function validateJournalEntryLines(
+  input: JournalEntryLinesInput,
+  expected: ExpectedEntry,
+  difficulty: Difficulty,
+): ValidationResult {
+  const errors: ValidationErrorCode[] = [];
+
+  if (input.lines.length !== expected.lines.length) {
+    errors.push("wrong_line_count");
+  }
+
+  const accountsUsed = new Set<string>();
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const actualDebits: { accountName: string; amount: number }[] = [];
+  const actualCredits: { accountName: string; amount: number }[] = [];
+
+  for (const line of input.lines) {
+    const key = line.accountName.trim().toLowerCase();
+    if (accountsUsed.has(key)) errors.push("same_account");
+    accountsUsed.add(key);
+
+    const hasDebit = line.debit > 0;
+    const hasCredit = line.credit > 0;
+    if ((hasDebit && hasCredit) || (!hasDebit && !hasCredit)) {
+      errors.push("invalid_line");
+      continue;
+    }
+    if (hasDebit && !isPositiveInteger(line.debit)) errors.push("wrong_amount");
+    if (hasCredit && !isPositiveInteger(line.credit)) errors.push("wrong_amount");
+
+    if (hasDebit) {
+      totalDebit += line.debit;
+      actualDebits.push({ accountName: line.accountName, amount: line.debit });
+    } else {
+      totalCredit += line.credit;
+      actualCredits.push({ accountName: line.accountName, amount: line.credit });
+    }
+
+    if (!isAccountInMode(line.accountName, difficulty)) {
+      errors.push("account_not_in_mode");
+    }
+  }
+
+  if (totalDebit !== totalCredit) {
+    errors.push("unbalanced_entry");
+  }
+
+  const expectedDebits = expected.lines
+    .filter((l) => l.debit > 0)
+    .map((l) => ({ accountName: l.accountName, amount: l.debit }));
+  const expectedCredits = expected.lines
+    .filter((l) => l.credit > 0)
+    .map((l) => ({ accountName: l.accountName, amount: l.credit }));
+
+  errors.push(...matchLines(expectedDebits, actualDebits, "debit"));
+  errors.push(...matchLines(expectedCredits, actualCredits, "credit"));
+
+  const uniqueErrors = [...new Set(errors)];
+  const correct = uniqueErrors.length === 0;
+  const description = correct ? expected.description : undefined;
+  return {
+    correct,
+    errors: uniqueErrors,
+    feedback: correct
+      ? `Correct. ${expected.description}`
+      : "Not quite. Check each debit and credit line — accounts and amounts must match.",
+    feedbackKey: correct ? "validation.correct" : "validation.incorrectMultiline",
+    feedbackParams: description ? { description } : undefined,
+  };
+}
 
 function sideIncreasesBalance(accountName: string, side: "debit" | "credit", difficulty: Difficulty): boolean {
   const accountType = getAccountType(accountName, difficulty)?.type;
@@ -86,6 +199,9 @@ export function validateJournalEntry(
 }
 
 export function getHint(expected: ExpectedEntry, level: 1 | 2 | 3 | 4): { key: string; params?: Record<string, string | number> } {
+  if (expected.lines.length > 2) {
+    return getMultiLineHint(expected, level);
+  }
   const debit = expected.lines.find((l) => l.debit > 0)!;
   const credit = expected.lines.find((l) => l.credit > 0)!;
   const amount = debit.debit;
@@ -142,3 +258,51 @@ export function getHint(expected: ExpectedEntry, level: 1 | 2 | 3 | 4): { key: s
 }
 
 const vowel = (s?: string) => (s && /^[aeiou]/.test(s) ? "n" : "");
+
+function getMultiLineHint(
+  expected: ExpectedEntry,
+  level: 1 | 2 | 3 | 4,
+): { key: string; params?: Record<string, string | number> } {
+  const debits = expected.lines.filter((l) => l.debit > 0);
+  const credits = expected.lines.filter((l) => l.credit > 0);
+  switch (level) {
+    case 1: {
+      const debitType = getAccountType(debits[0]!.accountName, "accrual");
+      const creditType = getAccountType(credits[0]!.accountName, "accrual");
+      return {
+        key: "validation.hint1Multi",
+        params: {
+          debitCount: debits.length,
+          creditCount: credits.length,
+          vowel1: vowel(debitType?.type),
+          type1: debitType?.type ?? "account",
+          vowel2: vowel(creditType?.type),
+          type2: creditType?.type ?? "account",
+        },
+      };
+    }
+    case 2: {
+      const parts = expected.lines
+        .map((line) => {
+          const side: "debit" | "credit" = line.debit > 0 ? "debit" : "credit";
+          const increases = sideIncreasesBalance(line.accountName, side, "accrual");
+          return `${line.accountName} ${balanceChangeWord(increases)}`;
+        })
+        .join("; ");
+      return { key: "validation.hint2Multi", params: { parts } };
+    }
+    case 3:
+      return {
+        key: "validation.hint3Multi",
+        params: {
+          debitCount: debits.length,
+          creditCount: credits.length,
+        },
+      };
+    case 4: {
+      const accounts = expected.lines.map((l) => getAccountKey(l.accountName)).join(", ");
+      const amounts = expected.lines.map((l) => (l.debit > 0 ? l.debit : l.credit)).join(", ");
+      return { key: "validation.hint4Multi", params: { accounts, amounts } };
+    }
+  }
+}

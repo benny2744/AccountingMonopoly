@@ -8,6 +8,8 @@ import TeamDashboard from "./routes/TeamDashboard.js";
 import TeacherDashboard from "./routes/TeacherDashboard.js";
 import DisplayPage from "./routes/DisplayPage.js";
 import TeacherGamesPage from "./routes/TeacherGamesPage.js";
+import AdminLoginPage from "./routes/AdminLoginPage.js";
+import RequireAdmin from "./components/RequireAdmin.js";
 import GameErrorToast from "./components/GameErrorToast.js";
 import ConnectionBanner from "./components/ConnectionBanner.js";
 
@@ -18,13 +20,14 @@ export default function App() {
       <GameErrorToast />
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/games" element={<TeacherGamesPage />} />
-        <Route path="/create" element={<CreateRoomPage />} />
+        <Route path="/login" element={<AdminLoginPage />} />
+        <Route path="/games" element={<RequireAdmin><TeacherGamesPage /></RequireAdmin>} />
+        <Route path="/create" element={<RequireAdmin><CreateRoomPage /></RequireAdmin>} />
         <Route path="/join" element={<JoinPage />} />
         <Route path="/join/:code" element={<JoinPage />} />
-        <Route path="/lobby/:roomCode" element={<LobbyPage />} />
+        <Route path="/lobby/:roomCode" element={<RequireAdmin><LobbyPage /></RequireAdmin>} />
         <Route path="/game/:roomCode" element={<TeamDashboard />} />
-        <Route path="/teacher/:roomCode" element={<TeacherDashboard />} />
+        <Route path="/teacher/:roomCode" element={<RequireAdmin><TeacherDashboard /></RequireAdmin>} />
         <Route path="/display/:roomCode" element={<DisplayPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

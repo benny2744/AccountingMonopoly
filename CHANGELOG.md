@@ -7,12 +7,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Team-to-team property trading**: active team proposes buy/sell during
+  `awaiting_end`; counterparty accepts or declines (`trade_offer` pending).
+  Ownership and `cost_basis` transfer on accept; both teams journal via the
+  counterparty chain. Seller may record a **multi-line** entry (Cash / Property /
+  Gain or Loss on Sale). New accounts **Gain on Sale** and **Loss on Sale**;
+  `validateJournalEntryLines` and fixed-slot journal UI for 3+ line entries.
+  REST: `POST /:gameId/trade/propose`, `POST /:gameId/trade/cancel`. Integration
+  tests in `trade.integration.test.ts`. *Extends beyond original PRD MVP scope.*
+- **Teacher admin login**: env-based credentials (`ADMIN_USERNAME`,
+  `ADMIN_PASSWORD`, `ADMIN_SECRET`) replace per-room teacher PINs. Routes
+  `/api/admin/login` and `/api/admin/verify`; `RequireAdmin` guards create/clone
+  and teacher dashboard flows. `X-Admin-Token` on create/start/clone.
+- **Per-tab session identity**: team and teacher tokens stored in
+  `sessionStorage` per tab (`amono.tabSessions`) so one browser can host
+  multiple roles (teacher + teams) without overwriting `localStorage`.
 - **Scale optimizations for ~8 concurrent games**: single `getGameState` build per
   mutation (response + broadcast share one snapshot), SQLite `game_id` indexes,
   batched per-game balance queries, batched journal line reads for ledger views,
   and `PRAGMA synchronous = NORMAL` with WAL.
 - **Teacher multi-game overview** (`/games`): monitor multiple room cards with
-  stuck-team badges, add existing rooms via teacher PIN, per-game session tokens
+  stuck-team badges, add existing rooms via admin login, per-game session tokens
   in `localStorage`, and one-click jumps to each dashboard.
 - **Full i18n support** (English + Simplified Chinese): typed dictionary in
   `packages/shared/src/i18n`, language toggle in the client header, default
@@ -25,6 +40,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   account types, journal descriptions, attempt outcomes).
 
 ### Fixed
+- **Socket integration test flakiness**: `advanceToAwaitingEnd` journals as the
+  pending owner (counterparty) and supports multi-line submit payloads.
 - **Vite alias for `@amono/shared` subpaths**: the production Docker build now
   resolves `@amono/shared/i18n` correctly by aliasing the bare specifier to the
   shared source directory with explicit subpath aliases.

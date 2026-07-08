@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api.js";
 import { useGameStore } from "../store.js";
 import { useTranslation } from "../i18n/useTranslation.js";
@@ -10,8 +10,10 @@ import {
   getJournalDescription,
   getEntryDescription,
 } from "@amono/shared/i18n";
-import type { AccountType, Difficulty } from "@amono/shared";
+import type { AccountType, Difficulty, ExpectedEntryLine } from "@amono/shared";
 import type { PendingAction, TeamView } from "../api.js";
+
+type SlotState = { accountName: string; amount: number };
 
 export default function JournalEntryPanel({
   gameId,
@@ -26,13 +28,27 @@ export default function JournalEntryPanel({
 }) {
   const { t } = useTranslation();
   const setState = useGameStore((s) => s.setState);
+  const expected = (pending.expectedEntries || []).find((e: any) => e.teamId === currentTeam.team.id) ?? (pending.expectedEntries || [])[0];
+  const expectedLines: ExpectedEntryLine[] = expected?.lines ?? [];
+  const multiline = expectedLines.length > 2;
+
   const [debit, setDebit] = useState("");
   const [credit, setCredit] = useState("");
   const [amount, setAmount] = useState<number>(0);
+  const [slots, setSlots] = useState<SlotState[]>(() =>
+    expectedLines.map((l) => ({ accountName: "", amount: l.debit > 0 ? l.debit : l.credit })),
+  );
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string; balanceChanges?: { accountName: string; before: number; after: number }[] } | null>(null);
   const [hintLevel, setHintLevel] = useState(0);
   const [hintText, setHintText] = useState<string | null>(null);
   const [hintGated, setHintGated] = useState(false);
+
+  const expectedAmount: number = useMemo(
+    () => expectedLines.reduce((s, l) => s + (l.debit > 0 ? l.debit : 0), 0),
+    [expectedLines],
+  );
+  const cashShort = expectedAmount > 0 && currentTeam.cash < expectedAmount;
+  const [loanAmount, setLoanAmount] = useState(expectedAmount - currentTeam.cash > 0 ? expectedAmount - currentTeam.cash : 100);
 
   async function showNextHint() {
     const next = Math.min(hintLevel + 1, 4);
@@ -48,21 +64,51 @@ export default function JournalEntryPanel({
     }
   }
 
-  const expected = (pending.expectedEntries || []).find((e: any) => e.teamId === currentTeam.team.id) ?? (pending.expectedEntries || [])[0];
-  const expectedAmount: number = expected?.lines?.find((l: any) => l.debit > 0)?.debit ?? 0;
-  const cashShort = expectedAmount > 0 && currentTeam.cash < expectedAmount;
-  const [loanAmount, setLoanAmount] = useState(expectedAmount - currentTeam.cash > 0 ? expectedAmount - currentTeam.cash : 100);
-
   async function takeLoanForFee() {
     try {
       await api.loanForFee(gameId, currentTeam.team.id, loanAmount);
-      // State arrives via socket broadcast; the panel re-renders with new cash.
     } catch (e) {
       setFeedback({ ok: false, text: (e as Error).message });
     }
   }
 
+  function updateSlot(index: number, patch: Partial<SlotState>) {
+    setSlots((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  }
+
   async function submit() {
+    if (multiline) {
+      const lines = expectedLines.map((line, i) => {
+        const slot = slots[i]!;
+        const isDebit = line.debit > 0;
+        return {
+          accountName: slot.accountName,
+          debit: isDebit ? slot.amount : 0,
+          credit: isDebit ? 0 : slot.amount,
+        };
+      });
+      if (lines.some((l) => !l.accountName || l.debit + l.credit <= 0)) {
+        setFeedback({ ok: false, text: t("journalEntryPanel.pickAccounts") });
+        return;
+      }
+      try {
+        const { result, state } = await api.submitJournalLines(gameId, currentTeam.team.id, lines);
+        setState(state);
+        if (result.correct) {
+          setFeedback({ ok: true, text: result.feedback, balanceChanges: result.balanceChanges });
+          setSlots(expectedLines.map((l) => ({ accountName: "", amount: l.debit > 0 ? l.debit : l.credit })));
+          setHintLevel(0);
+          setHintText(null);
+          setHintGated(false);
+        } else {
+          setFeedback({ ok: false, text: `${result.feedback} (${result.errors.join(", ")})` });
+        }
+      } catch (e) {
+        setFeedback({ ok: false, text: (e as Error).message });
+      }
+      return;
+    }
+
     if (!debit || !credit || amount <= 0) {
       setFeedback({ ok: false, text: t("journalEntryPanel.pickAccounts") });
       return;
@@ -72,8 +118,12 @@ export default function JournalEntryPanel({
       setState(state);
       if (result.correct) {
         setFeedback({ ok: true, text: result.feedback, balanceChanges: result.balanceChanges });
-        setDebit(""); setCredit(""); setAmount(0);
-        setHintLevel(0); setHintText(null); setHintGated(false);
+        setDebit("");
+        setCredit("");
+        setAmount(0);
+        setHintLevel(0);
+        setHintText(null);
+        setHintGated(false);
       } else {
         setFeedback({ ok: false, text: `${result.feedback} (${result.errors.join(", ")})` });
       }
@@ -82,12 +132,20 @@ export default function JournalEntryPanel({
     }
   }
 
+  function fillAllAmounts() {
+    if (multiline) {
+      setSlots(expectedLines.map((l) => ({ accountName: slots[expectedLines.indexOf(l)]?.accountName ?? "", amount: l.debit > 0 ? l.debit : l.credit })));
+    } else {
+      setAmount(expectedLines.find((l) => l.debit > 0)?.debit ?? 0);
+    }
+  }
+
   return (
     <div className="bg-white rounded-2xl shadow p-5 border-t-4 border-indigo-500">
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-bold text-lg">{t("journalEntryPanel.title")}</h2>
         <button
-          onClick={() => setAmount(expectedAmount)}
+          onClick={fillAllAmounts}
           className="text-xs text-indigo-600 underline"
           title={t("journalEntryPanel.fillAmountTooltip")}
         >
@@ -97,6 +155,9 @@ export default function JournalEntryPanel({
       <p className="text-sm text-slate-600 mb-3 bg-slate-50 rounded p-2">
         {expected ? getJournalDescription(expected) : t("journalEntryPanel.defaultDescription")}
       </p>
+      {multiline && (
+        <p className="text-xs text-indigo-700 mb-3 bg-indigo-50 rounded p-2">{t("journalEntryPanel.multilineHelper")}</p>
+      )}
       {cashShort && (
         <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
           <div className="text-sm font-semibold text-amber-900 mb-1">
@@ -121,19 +182,49 @@ export default function JournalEntryPanel({
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <AccountSelect label={t("journalEntryPanel.debit")} value={debit} onChange={setDebit} difficulty={difficulty} />
-        <AccountSelect label={t("journalEntryPanel.credit")} value={credit} onChange={setCredit} difficulty={difficulty} />
-        <label className="block">
-          <span className="text-xs font-medium text-slate-600 block mb-1">{t("journalEntryPanel.amountLabel")}</span>
-          <input
-            type="number"
-            value={amount || ""}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2"
-          />
-        </label>
-      </div>
+      {multiline ? (
+        <div className="space-y-3">
+          {expectedLines.map((line, i) => {
+            const isDebit = line.debit > 0;
+            return (
+              <div key={i} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end border-b border-slate-100 pb-3">
+                <div className="text-sm font-medium text-slate-600">
+                  {isDebit ? t("journalEntryPanel.lineDebit") : t("journalEntryPanel.lineCredit")}
+                </div>
+                <AccountSelect
+                  label={t("journalEntryPanel.selectAccount")}
+                  value={slots[i]?.accountName ?? ""}
+                  onChange={(v) => updateSlot(i, { accountName: v })}
+                  difficulty={difficulty}
+                />
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-600 block mb-1">{t("journalEntryPanel.amountLabel")}</span>
+                  <input
+                    type="number"
+                    value={slots[i]?.amount || ""}
+                    onChange={(e) => updateSlot(i, { amount: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <AccountSelect label={t("journalEntryPanel.debit")} value={debit} onChange={setDebit} difficulty={difficulty} />
+          <AccountSelect label={t("journalEntryPanel.credit")} value={credit} onChange={setCredit} difficulty={difficulty} />
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600 block mb-1">{t("journalEntryPanel.amountLabel")}</span>
+            <input
+              type="number"
+              value={amount || ""}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2"
+            />
+          </label>
+        </div>
+      )}
       {feedback && (
         <div className={`mt-3 rounded-lg p-3 text-sm ${feedback.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}>
           <div>{feedback.text}</div>
@@ -161,7 +252,15 @@ export default function JournalEntryPanel({
           {hintLevel === 0 ? t("journalEntryPanel.hint") : hintLevel >= 4 ? t("journalEntryPanel.hintsUsed") : t("journalEntryPanel.hintCount", { level: hintLevel })}
         </button>
         <button
-          onClick={() => { setDebit(""); setCredit(""); setAmount(0); setFeedback(null); setHintLevel(0); setHintText(null); }}
+          onClick={() => {
+            setDebit("");
+            setCredit("");
+            setAmount(0);
+            setSlots(expectedLines.map((l) => ({ accountName: "", amount: l.debit > 0 ? l.debit : l.credit })));
+            setFeedback(null);
+            setHintLevel(0);
+            setHintText(null);
+          }}
           className="border border-slate-300 px-4 py-2 rounded-lg"
         >
           {t("journalEntryPanel.clear")}
@@ -188,7 +287,6 @@ function AccountSelect({ label, value, onChange, difficulty }: { label: string; 
     [t("journalEntryPanel.accountGroups.revenue")]: list.filter((a) => a.type === "revenue"),
     [t("journalEntryPanel.accountGroups.expenses")]: list.filter((a) => a.type === "expense"),
   };
-  // Normal balance caption: assets & expenses are debit-normal; the rest are credit-normal.
   const normalSide = (t: AccountType): "debit" | "credit" => (t === "asset" || t === "expense" ? "debit" : "credit");
   return (
     <label className="block">

@@ -63,6 +63,7 @@ interface PropRow {
   color: string | null;
   house_cost: number | null;
   houses: number;
+  cost_basis: number | null;
 }
 interface AccountRow {
   id: string;
@@ -210,6 +211,7 @@ export function rowToProperty(r: PropRow): Property {
     color: r.color ?? undefined,
     houseCost: r.house_cost ?? undefined,
     houses: r.houses ?? 0,
+    costBasis: r.cost_basis ?? undefined,
   };
 }
 
@@ -511,6 +513,11 @@ export const queries = {
   },
   incrementPropertyHouses(propertyId: string): void {
     getDb().prepare("UPDATE properties SET houses = houses + 1 WHERE id = ?").run(propertyId);
+  },
+  transferPropertyAfterTrade(propertyId: string, buyerTeamId: string, costBasis: number): void {
+    getDb()
+      .prepare("UPDATE properties SET owner_team_id = ?, cost_basis = ? WHERE id = ?")
+      .run(buyerTeamId, costBasis, propertyId);
   },
   upsertYearSnapshotWithScore(
     gameId: string,

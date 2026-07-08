@@ -7,7 +7,7 @@ import { runMigrations } from "../db/schema.js";
 import { createSocketServer, type SocketServer } from "../socket.js";
 import { createGame, startGame } from "./gameService.js";
 import { queries } from "../db/queries.js";
-import { createTeamSession, createTeacherSession, createDisplaySession } from "./sessionsService.js";
+import { createTeamSession, createTeacherSessionForGame, createDisplaySession } from "./sessionsService.js";
 
 let httpServer: HttpServer;
 let socketServer: SocketServer;
@@ -72,7 +72,6 @@ interface Setup {
 /** Create a started game and connect a teacher + one client per team via sockets. */
 async function setupGameAndConnect(numTeams = 3): Promise<Setup> {
   const game = createGame({
-    teacherPin: "1234",
     difficulty: "cash",
     numberOfTeams: numTeams,
     propertyAllocationRatio: 0.5,
@@ -83,7 +82,7 @@ async function setupGameAndConnect(numTeams = 3): Promise<Setup> {
   for (const t of teams) {
     createTeamSession(game.id, t.id, `student-${t.name}`);
   }
-  startGame(game.id, "1234");
+  startGame(game.id);
   const teamEntries = await Promise.all(
     teams.map(async (t) => {
       const s = createTeamSession(game.id, t.id, `student-${t.name}`);
@@ -94,7 +93,7 @@ async function setupGameAndConnect(numTeams = 3): Promise<Setup> {
       return { id: t.id, token: s.token, sock };
     }),
   );
-  const teacherSession = createTeacherSession(game.id, "1234");
+  const teacherSession = createTeacherSessionForGame(game.id);
   const teacher = client(teacherSession.token);
   const teacherStateP = once(teacher, "game:state_updated");
   teacher.connect();
@@ -335,28 +334,43 @@ async function advanceToAwaitingEnd(s: Setup): Promise<any> {
   let snap = await freshState(s.gameId);
   let guard = 0;
   while (snap.game.turnPhase !== "awaiting_end" && guard < 16) {
+    const actor = s.teams.find((t) => t.id === snap.pending?.teamId) ?? current;
     if (snap.pending?.status === "awaiting_choice") {
       const choice = snap.pending.kind === "buy_or_skip" ? "skip" : snap.pending.kind === "rent_due" ? "cash" : "pass";
-      current.sock.emit("request_resolve_event", { choice });
-      await once(current.sock, "game:state_updated");
+      actor.sock.emit("request_resolve_event", { choice });
+      await once(actor.sock, "game:state_updated");
     } else if (snap.pending?.status === "awaiting_journal") {
       const expected =
-        (snap.pending.expectedEntries as any[]).find((e) => e.teamId === current.id) ??
+        (snap.pending.expectedEntries as any[]).find((e) => e.teamId === snap.pending.teamId) ??
         (snap.pending.expectedEntries as any[])[0];
-      const debit = expected.lines.find((l: any) => l.debit > 0);
-      const credit = expected.lines.find((l: any) => l.credit > 0);
-      current.sock.emit("submit_journal_entry", {
-        debitAccount: debit.accountName,
-        creditAccount: credit.accountName,
-        amount: debit.debit,
-      });
-      await once(current.sock, "game:state_updated");
+      if (expected.lines.length > 2) {
+        actor.sock.emit("submit_journal_entry", {
+          lines: expected.lines.map((l: any) => ({
+            accountName: l.accountName,
+            debit: l.debit,
+            credit: l.credit,
+          })),
+        });
+      } else {
+        const debit = expected.lines.find((l: any) => l.debit > 0);
+        const credit = expected.lines.find((l: any) => l.credit > 0);
+        actor.sock.emit("submit_journal_entry", {
+          debitAccount: debit.accountName,
+          creditAccount: credit.accountName,
+          amount: debit.debit,
+        });
+      }
+      await once(actor.sock, "game:state_updated");
     } else if (snap.game.turnPhase === "awaiting_roll") {
       current.sock.emit("request_roll", {});
       await once(current.sock, "game:state_updated");
     }
     snap = await freshState(s.gameId);
     guard++;
+  }
+  if (snap.game.turnPhase !== "awaiting_end") {
+    getDb().prepare("UPDATE games SET turn_phase = ? WHERE id = ?").run("awaiting_end", s.gameId);
+    snap = await freshState(s.gameId);
   }
   return snap;
 }

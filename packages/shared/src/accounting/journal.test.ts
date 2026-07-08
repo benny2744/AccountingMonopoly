@@ -8,6 +8,7 @@ import {
   sumDebits,
   UnbalancedEntryError,
 } from "./journal.js";
+import { propertySaleSeller } from "./entryRules.js";
 
 function line(
   journalEntryId: string,
@@ -67,6 +68,20 @@ describe("postJournalEntry", () => {
       credit: 50,
     };
     expect(() => postJournalEntry([bad])).toThrow(UnbalancedEntryError);
+  });
+
+  it("posts a 3-line property sale entry", () => {
+    const expected = propertySaleSeller("t", 300, 200, "Boardwalk");
+    const lines = expected.lines.map((l, i) =>
+      line("e-sale", l.accountName, l.debit > 0 ? "d" : "c", l.debit > 0 ? l.debit : l.credit),
+    );
+    lines.forEach((l, i) => {
+      l.id = `e-sale-${i}`;
+    });
+    const posted = postJournalEntry(lines);
+    expect(posted).toHaveLength(3);
+    expect(sumDebits(posted)).toBe(300);
+    expect(sumCredits(posted)).toBe(300);
   });
 });
 

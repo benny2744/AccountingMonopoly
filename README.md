@@ -134,6 +134,12 @@ the schema on next start.
   slots); default 2 teams.
 - **Properties tab**: owned properties, house/hotel status, and rent tables for
   each team and on the teacher dashboard.
+- **Team property trading**: during `awaiting_end`, the active team can propose
+  buy/sell offers; the counterparty accepts or declines. Seller journals may
+  include Gain/Loss on Sale (multi-line fixed-slot form). `cost_basis` tracks
+  book value for resales.
+- **Teacher admin login**: env-based `ADMIN_*` credentials gate create/clone and
+  teacher dashboards (replaces per-room PIN).
 - **Multi-tab fix**: each browser tab keeps its own session token so teacher +
   team testing in one browser no longer breaks roll dice.
 - **Multi-game teacher workflow**: open **My Games** (`/games`) to monitor up
@@ -142,10 +148,10 @@ the schema on next start.
 
 ## Known limitations (out of scope for MVP, PRD §4.4)
 
-Auctions, property trading, depreciation, bad debt, inventory,
-taxes-as-accounting, AI opponents, real authentication, exact Monopoly board,
-advanced animations, cloud deployment. The event card editor (PRD §26.5) is
-also out of scope.
+Auctions, depreciation, bad debt, inventory, taxes-as-accounting, AI opponents,
+exact Monopoly board artwork, advanced animations, cloud deployment. Property
+trading is implemented but was originally post-MVP in the PRD. The event card
+editor (PRD §26.5) is also out of scope.
 
 ## MVP acceptance (PRD §31)
 

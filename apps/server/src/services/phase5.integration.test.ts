@@ -4,9 +4,10 @@ import type { AddressInfo } from "node:net";
 import { openDb, closeDb, getDb } from "../db/client.js";
 import { runMigrations } from "../db/schema.js";
 import { createApp } from "../app.js";
+import { loginAdmin } from "../testHelpers.js";
 import { createGame, startGame, endGame } from "./gameService.js";
 import { queries } from "../db/queries.js";
-import { createTeacherSession, createTeamSession } from "./sessionsService.js";
+import { createTeacherSessionForGame, createTeamSession } from "./sessionsService.js";
 import { activateYearEnd, resolveYearEndStep } from "./yearEndService.js";
 import { postEntry, balanceOf } from "./accountingService.js";
 import { exportGame } from "./exportService.js";
@@ -16,6 +17,7 @@ import { submitJournalEntry, roll } from "./turnService.js";
 let httpServer: HttpServer;
 // Assigned in beforeAll; referenced as `void port` to silence unused warnings.
 let port = 0;
+let adminToken = "";
 
 beforeAll(async () => {
   openDb(":memory:");
@@ -24,6 +26,7 @@ beforeAll(async () => {
   httpServer = createServer(app);
   await new Promise<void>((r) => httpServer.listen(0, "127.0.0.1", r));
   port = (httpServer.address() as AddressInfo).port;
+  adminToken = await loginAdmin(port);
 });
 
 afterAll(async () => {
@@ -62,6 +65,7 @@ async function post(path: string, body: unknown, token?: string): Promise<{ ok: 
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-Admin-Token": adminToken,
     },
     body: JSON.stringify(body),
   });
@@ -76,7 +80,6 @@ function makeStartedGame(difficulty: "cash" | "accrual" = "cash"): {
   teacherToken: string;
 } {
   const game = createGame({
-    teacherPin: "1234",
     difficulty,
     numberOfTeams: 2,
     propertyAllocationRatio: 0,
@@ -90,8 +93,8 @@ function makeStartedGame(difficulty: "cash" | "accrual" = "cash"): {
   for (const t of teams) {
     teamTokens[t.id] = createTeamSession(game.id, t.id, "tester").token;
   }
-  const teacherToken = createTeacherSession(game.id, "1234").token;
-  startGame(game.id, "1234");
+  const teacherToken = createTeacherSessionForGame(game.id).token;
+  startGame(game.id);
   return { gameId: game.id, teamIds: teams.map((t) => t.id), teamTokens, teacherToken };
 }
 
@@ -307,7 +310,6 @@ describe("Phase 5 — classroom polish", () => {
 
   it("settings allowStudentFullHint + showScores persist into the game row", () => {
     const game = createGame({
-      teacherPin: "1234",
       difficulty: "cash",
       numberOfTeams: 2,
       propertyAllocationRatio: 0,
@@ -345,7 +347,7 @@ describe("Phase 5 — classroom polish", () => {
 
   it("clone copies settings into a new room", async () => {
     const { gameId, teacherToken } = makeStartedGame("accrual");
-    const { ok, json } = await post(`/api/games/${gameId}/clone`, { teacherPin: "5678" }, teacherToken);
+    const { ok, json } = await post(`/api/games/${gameId}/clone`, {}, teacherToken);
     expect(ok).toBe(true);
     const body = json as { game: { id: string; settings: { allowStudentFullHint: boolean; showScores: boolean } } };
     expect(body.game.id).not.toBe(gameId);

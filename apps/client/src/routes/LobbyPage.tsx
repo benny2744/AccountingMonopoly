@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type RoomLookup, type LanInfo } from "../api.js";
+import { api, setActiveGameId, type RoomLookup, type LanInfo } from "../api.js";
 import { useTranslation } from "../i18n/useTranslation.js";
 import { LanguageToggle } from "../i18n/LanguageToggle.js";
 import { getDifficultyLabel, getTeamNameLabel } from "@amono/shared/i18n";
@@ -11,16 +11,27 @@ export default function LobbyPage() {
   const { roomCode = "" } = useParams<{ roomCode: string }>();
   const [room, setRoom] = useState<RoomLookup | null>(null);
   const [lan, setLan] = useState<LanInfo | null>(null);
-  const [teacherPin, setTeacherPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    api.lookupRoom(roomCode).then(setRoom).catch((e) => setError((e as Error).message));
+    api
+      .lookupRoom(roomCode)
+      .then((lookup) => {
+        setActiveGameId(lookup.gameId);
+        setRoom(lookup);
+      })
+      .catch((e) => setError((e as Error).message));
     api.lanInfo().then(setLan).catch(() => undefined);
     const id = setInterval(() => {
-      api.lookupRoom(roomCode).then(setRoom).catch(() => undefined);
+      api
+        .lookupRoom(roomCode)
+        .then((lookup) => {
+          setActiveGameId(lookup.gameId);
+          setRoom(lookup);
+        })
+        .catch(() => undefined);
     }, 3000);
     return () => clearInterval(id);
   }, [roomCode]);
@@ -29,7 +40,7 @@ export default function LobbyPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.startGame(room!.gameId, teacherPin, override);
+      await api.startGame(room!.gameId, override);
       navigate(`/teacher/${roomCode}`);
     } catch (e) {
       setError((e as Error).message);
@@ -163,13 +174,9 @@ export default function LobbyPage() {
             {t("lobbyPage.needStudentsWarning", { joined: joinedTeams })}
           </div>
         )}
-        <label className="block mb-3">
-          <span className="text-sm font-medium text-slate-600 block mb-1">{t("lobbyPage.teacherPinPrompt")}</span>
-          <input className="input" value={teacherPin} onChange={(e) => setTeacherPin(e.target.value)} />
-        </label>
         <button
           onClick={() => start(false)}
-          disabled={busy || teacherPin.length === 0 || !canStart}
+          disabled={busy || !canStart}
           className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
         >
           {busy ? t("lobbyPage.starting") : t("lobbyPage.startGame")}
@@ -177,7 +184,7 @@ export default function LobbyPage() {
         {!canStart && (
           <button
             onClick={() => start(true)}
-            disabled={busy || teacherPin.length === 0}
+            disabled={busy}
             className="w-full mt-2 border border-slate-300 text-slate-700 py-3 rounded-lg font-semibold hover:bg-slate-50 disabled:opacity-50"
           >
             {t("lobbyPage.startAnyway")}

@@ -125,13 +125,14 @@ export default function TeacherDashboard() {
           ) : (
             <button
               onClick={() => {
-                const pin = prompt(t("teacherDashboard.clonePinPrompt"), "1234");
-                if (pin) ctl(async () => {
-                  const { game, sessionToken } = await api.cloneGame(state.game.id, pin);
-                  saveSession(sessionToken, game.id);
-                  addTeacherRoom({ roomCode: game.roomCode, gameId: game.id, label: game.roomCode });
-                  window.location.href = `/lobby/${game.roomCode}`;
-                });
+                if (confirm(t("teacherDashboard.playAgainConfirm"))) {
+                  ctl(async () => {
+                    const { game, sessionToken } = await api.cloneGame(state.game.id);
+                    saveSession(sessionToken, game.id);
+                    addTeacherRoom({ roomCode: game.roomCode, gameId: game.id, label: game.roomCode });
+                    window.location.href = `/lobby/${game.roomCode}`;
+                  });
+                }
               }}
               disabled={busy}
               className="bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 disabled:opacity-50"

@@ -16,7 +16,6 @@ const RATIO_OPTIONS = [
 export default function CreateRoomPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [teacherPin, setTeacherPin] = useState("1234");
   const [difficulty, setDifficulty] = useState<"cash" | "accrual">("cash");
   const [numberOfTeams, setNumberOfTeams] = useState(2);
   const [ratio, setRatio] = useState<number>(0.5);
@@ -30,7 +29,6 @@ export default function CreateRoomPage() {
     setError(null);
     try {
       const { game, sessionToken } = await api.createGame({
-        teacherPin,
         difficulty,
         numberOfTeams,
         propertyAllocationRatio: ratio,
@@ -54,9 +52,6 @@ export default function CreateRoomPage() {
           <LanguageToggle />
         </div>
         <div className="space-y-4">
-          <Field label={t("createRoomPage.teacherPin")}>
-            <input className="input" value={teacherPin} onChange={(e) => setTeacherPin(e.target.value)} />
-          </Field>
           <Field label={t("createRoomPage.difficulty")}>
             <div className="flex gap-3">
               {(["cash", "accrual"] as const).map((d) => (

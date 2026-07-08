@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { queries } from "../db/queries.js";
-import { sha256, uuid, now } from "../util/ids.js";
+import { uuid, now } from "../util/ids.js";
 import { GameError } from "./gameService.js";
 
 export type SessionRole = "teacher" | "team" | "display";
@@ -46,13 +46,10 @@ export function touchSession(token: string): void {
   getDb().prepare("UPDATE sessions SET last_seen_at = ? WHERE token = ?").run(now(), token);
 }
 
-/** Verify teacher PIN and issue a teacher session bound to the game. */
-export function createTeacherSession(gameId: string, teacherPin: string): Session {
+/** Issue a teacher session for a game (admin-gated at the route layer). */
+export function createTeacherSessionForGame(gameId: string): Session {
   const game = queries.gameById(gameId);
   if (!game) throw new GameError("NOT_FOUND", "Game not found");
-  if (sha256(teacherPin) !== game.teacherPinHash) {
-    throw new GameError("INVALID_PIN", "Incorrect teacher PIN");
-  }
   return insertSession({ gameId, role: "teacher", teamId: null, displayName: "Teacher" });
 }
 

@@ -137,9 +137,12 @@ export interface StatementsView {
 }
 
 const SESSION_KEY = "amono.sessionToken";
+const TAB_SESSIONS_KEY = "amono.tabSessions";
+const TAB_ACTIVE_GAME_KEY = "amono.tabActiveGameId";
 const SESSIONS_MAP_KEY = "amono.sessions";
 const ACTIVE_GAME_KEY = "amono.activeGameId";
 const LEGACY_SESSION_KEY = "amono.sessionToken";
+const ADMIN_TOKEN_KEY = "amono.adminToken";
 
 let activeGameId: string | null = null;
 
@@ -156,35 +159,89 @@ function writeSessionMap(map: Record<string, string>): void {
   localStorage.setItem(SESSIONS_MAP_KEY, JSON.stringify(map));
 }
 
-/** Set which game's session token REST/socket calls should use. */
+function readTabSessionMap(): Record<string, string> {
+  try {
+    const raw = sessionStorage.getItem(TAB_SESSIONS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTabSessionMap(map: Record<string, string>): void {
+  sessionStorage.setItem(TAB_SESSIONS_KEY, JSON.stringify(map));
+}
+
+export function saveAdminToken(token: string): void {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function getAdminToken(): string | null {
+  return localStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function clearAdminToken(): void {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+/** Set which game's session token REST/socket calls should use (per tab). */
 export function setActiveGameId(gameId: string | null): void {
   activeGameId = gameId;
-  if (gameId) localStorage.setItem(ACTIVE_GAME_KEY, gameId);
-  else localStorage.removeItem(ACTIVE_GAME_KEY);
-  const token = gameId ? readSessionMap()[gameId] : null;
-  if (token) sessionStorage.setItem(SESSION_KEY, token);
-  else sessionStorage.removeItem(SESSION_KEY);
+  if (gameId) {
+    localStorage.setItem(ACTIVE_GAME_KEY, gameId);
+    sessionStorage.setItem(TAB_ACTIVE_GAME_KEY, gameId);
+    const tabMap = readTabSessionMap();
+    if (tabMap[gameId]) {
+      sessionStorage.setItem(SESSION_KEY, tabMap[gameId]!);
+    } else {
+      const fromMap = readSessionMap()[gameId];
+      if (fromMap) {
+        tabMap[gameId] = fromMap;
+        writeTabSessionMap(tabMap);
+        sessionStorage.setItem(SESSION_KEY, fromMap);
+      } else {
+        sessionStorage.removeItem(SESSION_KEY);
+      }
+    }
+  } else {
+    localStorage.removeItem(ACTIVE_GAME_KEY);
+    sessionStorage.removeItem(TAB_ACTIVE_GAME_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+  }
 }
 
 export function getActiveGameId(): string | null {
-  return activeGameId ?? localStorage.getItem(ACTIVE_GAME_KEY);
+  return (
+    activeGameId ??
+    sessionStorage.getItem(TAB_ACTIVE_GAME_KEY) ??
+    localStorage.getItem(ACTIVE_GAME_KEY)
+  );
 }
 
 function getSessionToken(): string | null {
   const gid = getActiveGameId();
   if (gid) {
+    const tabMap = readTabSessionMap();
+    if (tabMap[gid]) return tabMap[gid]!;
     const fromMap = readSessionMap()[gid];
-    if (fromMap) return fromMap;
+    if (fromMap) {
+      tabMap[gid] = fromMap;
+      writeTabSessionMap(tabMap);
+      sessionStorage.setItem(SESSION_KEY, fromMap);
+      return fromMap;
+    }
   }
   return sessionStorage.getItem(SESSION_KEY) ?? localStorage.getItem(LEGACY_SESSION_KEY);
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getSessionToken();
+  const adminToken = getAdminToken();
   const r = await fetch(`/api${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -232,8 +289,15 @@ export interface LanInfo {
 }
 
 export const api = {
+  adminLogin: (username: string, password: string) =>
+    req<{ adminToken: string }>("/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
+  adminVerify: () => req<{ ok: boolean }>("/admin/verify"),
+
   createGame: (input: {
-    teacherPin: string;
     difficulty: "cash" | "accrual";
     numberOfTeams: number;
     propertyAllocationRatio: number;
@@ -246,10 +310,10 @@ export const api = {
 
   lanInfo: () => req<LanInfo>("/games/meta/lan-info"),
 
-  teacherJoin: (roomCode: string, teacherPin: string) =>
+  teacherJoin: (roomCode: string) =>
     req<{ sessionToken: string; gameId: string }>(`/games/by-code/${roomCode.toUpperCase()}/teacher-join`, {
       method: "POST",
-      body: JSON.stringify({ teacherPin }),
+      body: "{}",
     }),
 
   joinTeam: (gameId: string, teamId: string, displayName?: string) =>
@@ -268,10 +332,10 @@ export const api = {
 
   getState: (gameId: string) => req<GameState>(`/games/${gameId}`),
 
-  startGame: (gameId: string, teacherPin: string, override?: boolean) =>
+  startGame: (gameId: string, override?: boolean) =>
     req<GameState>(`/games/${gameId}/start`, {
       method: "POST",
-      body: JSON.stringify({ teacherPin, override: override ?? false }),
+      body: JSON.stringify({ override: override ?? false }),
     }),
 
   roll: (gameId: string, teamId: string) =>
@@ -286,13 +350,37 @@ export const api = {
       body: JSON.stringify({ teamId, propertyId }),
     }),
 
+  proposeTrade: (
+    gameId: string,
+    teamId: string,
+    propertyId: string,
+    price: number,
+    counterpartyTeamId?: string,
+  ) =>
+    req<{ state: GameState }>(`/games/${gameId}/trade/propose`, {
+      method: "POST",
+      body: JSON.stringify({ teamId, propertyId, price, counterpartyTeamId }),
+    }),
+
+  cancelTrade: (gameId: string, teamId: string) =>
+    req<{ state: GameState }>(`/games/${gameId}/trade/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ teamId }),
+    }),
+
   resolveEvent: (gameId: string, teamId: string, choice: string, amount?: number) =>
     req<{ state: GameState }>(`/games/${gameId}/resolve-event`, {
       method: "POST",
       body: JSON.stringify({ teamId, choice, amount }),
     }),
 
-  submitJournal: (gameId: string, teamId: string, debitAccount: string, creditAccount: string, amount: number) =>
+  submitJournal: (
+    gameId: string,
+    teamId: string,
+    debitAccount: string,
+    creditAccount: string,
+    amount: number,
+  ) =>
     req<{
       result: {
         correct: boolean;
@@ -300,11 +388,34 @@ export const api = {
         errors: string[];
         attempts: number;
         balanceChanges?: { accountName: string; before: number; after: number }[];
+        chainedTo?: string;
+        chainedToName?: string;
       };
       state: GameState;
     }>(
       `/games/${gameId}/submit-journal-entry`,
       { method: "POST", body: JSON.stringify({ teamId, debitAccount, creditAccount, amount }) },
+    ),
+
+  submitJournalLines: (
+    gameId: string,
+    teamId: string,
+    lines: Array<{ accountName: string; debit: number; credit: number }>,
+  ) =>
+    req<{
+      result: {
+        correct: boolean;
+        feedback: string;
+        errors: string[];
+        attempts: number;
+        balanceChanges?: { accountName: string; before: number; after: number }[];
+        chainedTo?: string;
+        chainedToName?: string;
+      };
+      state: GameState;
+    }>(
+      `/games/${gameId}/submit-journal-entry`,
+      { method: "POST", body: JSON.stringify({ teamId, lines }) },
     ),
 
   endTurn: (gameId: string) => req<{ state: GameState }>(`/games/${gameId}/end-turn`, { method: "POST", body: "{}" }),
@@ -348,10 +459,10 @@ export const api = {
       body: JSON.stringify({ level }),
     }),
   endGame: (gameId: string) => req<GameState>(`/games/${gameId}/end`, { method: "POST", body: "{}" }),
-  cloneGame: (gameId: string, teacherPin: string) =>
+  cloneGame: (gameId: string) =>
     req<{ game: Game; sessionToken: string }>(`/games/${gameId}/clone`, {
       method: "POST",
-      body: JSON.stringify({ teacherPin }),
+      body: "{}",
     }),
   scores: (gameId: string) =>
     req<{
@@ -381,19 +492,24 @@ export const api = {
 
 export function saveSession(token: string, gameId?: string): void {
   const gid = gameId ?? getActiveGameId();
+  sessionStorage.setItem(SESSION_KEY, token);
   if (gid) {
+    const tabMap = readTabSessionMap();
+    tabMap[gid] = token;
+    writeTabSessionMap(tabMap);
+    setActiveGameId(gid);
     const map = readSessionMap();
     map[gid] = token;
     writeSessionMap(map);
-    setActiveGameId(gid);
-  } else {
-    sessionStorage.setItem(SESSION_KEY, token);
   }
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 export function clearSession(gameId?: string): void {
   const gid = gameId ?? getActiveGameId();
   if (gid) {
+    const tabMap = readTabSessionMap();
+    delete tabMap[gid];
+    writeTabSessionMap(tabMap);
     const map = readSessionMap();
     delete map[gid];
     writeSessionMap(map);

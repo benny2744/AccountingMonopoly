@@ -6,10 +6,12 @@ students join over the LAN at `http://<teacher-LAN-IP>:5000`.
 
 **Current image includes:** classic 40-space Monopoly-style board, houses/hotels,
 railroads, card-draw spaces, pass-GO year-end, two-sided rent journaling
-(payer + receiver), lobby team add/remove (2–4 teams), hints/scoring/export,
+(payer + receiver), **team property trading** (offer/accept, gain/loss on sale,
+multi-line seller journal), lobby team add/remove (2–4 teams), hints/scoring/export,
 animated dice with modal gating (cards/tax wait for dice + piece movement;
 current-tile highlight follows the token), year-scoped financial statements
 (default to last closed year after year-end), in-board controls, properties tab,
+teacher admin login (`ADMIN_*` env vars), per-tab sessions for multi-role testing,
 teacher recovery tools (Reveal Answer, Force next turn with counterparty auto-post),
 and English/Chinese language toggle with localized CSV export.
 
@@ -60,7 +62,7 @@ Routes served by the bundled SPA (no separate web server):
 | --- | --- |
 | `/join` | Students pick a team; teacher creates a room |
 | `/teacher/:roomCode` | Teacher dashboard |
-| `/game/:roomCode` | Team dashboard (roll, journal, build houses) |
+| `/game/:roomCode` | Team dashboard (roll, journal, build houses, trade property) |
 | `/display/:roomCode` | Projector / read-only display |
 
 ## Find the LAN IP for students
@@ -94,8 +96,8 @@ ls -la data/
 
 On startup the server runs **guarded schema migrations** (`ALTER TABLE … ADD
 COLUMN`) for Phase 4/5 and classic-board columns (`properties.houses`,
-`kind`, `color_group`, `hints_used`, score columns, etc.). Existing databases
-pick up new columns automatically.
+`properties.cost_basis`, `kind`, `color_group`, `hints_used`, score columns,
+etc.). Existing databases pick up new columns automatically.
 
 > **Important:** board layout and spaces are fixed when a game is **created**.
 > After upgrading to a build with the classic 40-space board, **in-progress or
@@ -208,11 +210,14 @@ for this local-build setup.
 
 Environment variables (override in `docker-compose.yml` or with `-e`):
 
-| Variable   | Default          | Purpose                                  |
-| ---------- | ---------------- | ---------------------------------------- |
-| `PORT`     | `5000`           | Server listen port (also `EXPOSE`d).     |
-| `DB_PATH`  | `/data/game.db`  | SQLite file path inside the container.   |
-| `NODE_ENV` | `production`     | Set by the Dockerfile; no need to change.|
+| Variable          | Default              | Purpose                                      |
+| ----------------- | -------------------- | -------------------------------------------- |
+| `PORT`            | `5000`               | Server listen port (also `EXPOSE`d).         |
+| `DB_PATH`         | `/data/game.db`      | SQLite file path inside the container.       |
+| `NODE_ENV`        | `production`         | Set by the Dockerfile; no need to change.     |
+| `ADMIN_USERNAME`  | `admin` (dev only)   | Teacher login username. Set in production.   |
+| `ADMIN_PASSWORD`  | `admin` (dev only)   | Teacher login password. Set in production.   |
+| `ADMIN_SECRET`    | dev default          | HMAC secret for admin tokens. Set in prod.   |
 
 To change the host port:
 

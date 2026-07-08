@@ -12,6 +12,8 @@ import TAccountsView from "../components/TAccountsView.js";
 import StatementsView from "../components/StatementsView.js";
 import YearEndPanel from "../components/YearEndPanel.js";
 import BuildPanel from "../components/BuildPanel.js";
+import TradePanel from "../components/TradePanel.js";
+import { TradeOfferModal, TradeWaitingBanner } from "../components/TradeOfferModal.js";
 import Dice, { useDiceRoll } from "../components/Dice.js";
 import PropertiesView from "../components/PropertiesView.js";
 import CardRevealModal from "../components/CardRevealModal.js";
@@ -45,6 +47,12 @@ export default function TeamDashboard() {
   // The receiver of a rent/transfer also journals — even when it isn't their turn.
   const iShouldJournal =
     !!myTeamId && !!state.pending && state.pending.status === "awaiting_journal" && state.pending.teamId === myTeamId;
+  const iHaveTradeOffer =
+    !!myTeamId &&
+    !!state.pending &&
+    state.pending.kind === "trade_offer" &&
+    state.pending.status === "awaiting_choice" &&
+    state.pending.teamId === myTeamId;
   const pendingTeam = state.pending ? state.teams.find((t) => t.team.id === state.pending!.teamId) : null;
   const pendingTeamName = pendingTeam?.team.name;
 
@@ -126,6 +134,14 @@ export default function TeamDashboard() {
         </div>
       )}
 
+      {iHaveTradeOffer && (
+        <div className="mb-4">
+          <TradeOfferModal state={state} myTeamId={myTeamId!} />
+        </div>
+      )}
+
+      {myTeamId && <TradeWaitingBanner state={state} myTeamId={myTeamId} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
         <div className="space-y-4">
           {tab === "board" && (
@@ -147,6 +163,9 @@ export default function TeamDashboard() {
                   ) : undefined
                 }
               />
+              {isMyTurn && myTeamId && state.game.turnPhase === "awaiting_end" && !state.pending && (
+                <TradePanel state={state} teamId={myTeamId} />
+              )}
               {isMyTurn && myTeamId && state.game.turnPhase === "awaiting_roll" && (
                 <BuildPanel state={state} teamId={myTeamId} />
               )}

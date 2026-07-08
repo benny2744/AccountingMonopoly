@@ -6,7 +6,7 @@ import { runMigrations } from "../db/schema.js";
 import { createApp } from "../app.js";
 import { createGame, startGame, forceNextTurn } from "./gameService.js";
 import { queries } from "../db/queries.js";
-import { createTeacherSession, createTeamSession, createDisplaySession } from "./sessionsService.js";
+import { createTeacherSessionForGame, createTeamSession, createDisplaySession } from "./sessionsService.js";
 import { roll, resolveChoice, submitJournalEntry, endTurn, takeLoanForPendingFee, revealAnswer } from "./turnService.js";
 import { startYearEnd, resolveYearEndStep, buildYearEndSteps } from "./yearEndService.js";
 import { statementsView } from "./stateService.js";
@@ -61,7 +61,6 @@ interface Setup {
 
 function makeAccrualGame(numTeams = 2): Setup {
   const game = createGame({
-    teacherPin: "1234",
     difficulty: "accrual",
     numberOfTeams: numTeams,
     propertyAllocationRatio: 0,
@@ -74,8 +73,8 @@ function makeAccrualGame(numTeams = 2): Setup {
     teamTokens[t.id] = createTeamSession(game.id, t.id, "tester").token;
   }
   // startGame requires at least 2 joined sessions — created above.
-  startGame(game.id, "1234");
-  const teacherToken = createTeacherSession(game.id, "1234").token;
+  startGame(game.id);
+  const teacherToken = createTeacherSessionForGame(game.id).token;
   return { gameId: game.id, teamIds: teams.map((t) => t.id), teamTokens, teacherToken };
 }
 
@@ -319,7 +318,6 @@ describe("Phase 4 — accrual mode", () => {
 
   it("cash mode rejects accrual accounts at journal validation", () => {
     const game = createGame({
-      teacherPin: "1234",
       difficulty: "cash",
       numberOfTeams: 2,
       propertyAllocationRatio: 0,
@@ -328,7 +326,7 @@ describe("Phase 4 — accrual mode", () => {
     });
     const teams = queries.teamsByGame(game.id);
     for (const t of teams) createTeamSession(game.id, t.id, "tester");
-    startGame(game.id, "1234");
+    startGame(game.id);
     const teamId = teams[0]!.id;
     // Build a pending action with an expected entry referencing an accrual account.
     getDb()

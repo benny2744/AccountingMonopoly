@@ -16,7 +16,8 @@ roadmaps, see [PLAN-00-OVERVIEW.md](PLAN-00-OVERVIEW.md).
    dependency on React or Express — it is plain TypeScript, fully unit-testable,
    and reused by both client (for optimistic display) and server (for truth).
 4. **Classroom-friendly.** One process on the teacher's laptop can serve the
-   built client and the API over LAN; no external services or auth required.
+   built client and the API over LAN; teacher flows use a simple env-based admin
+   login (no external IdP).
 
 ## Monorepo layout
 
@@ -34,8 +35,10 @@ directly from its TypeScript source (no build step required for dev).
 - Accounting engine: [`packages/shared/src/accounting/`](packages/shared/src/accounting)
   - `accounts.ts`, `normalBalances.ts` — chart of accounts and debit/credit rules.
   - `journal.ts` — posting journal entries to the ledger.
-  - `validation.ts` — comparing a student entry to the expected entry.
-  - `entryRules.ts` — maps each game event type to its expected journal entries.
+  - `validation.ts` — comparing a student entry to the expected entry (single-pair
+    and multi-line `validateJournalEntryLines`).
+  - `entryRules.ts` — maps each game event type to its expected journal entries
+    (including `propertySaleSeller` / `propertyTradeBuyer` for team trades).
   - `statements.ts` — income statement, balance sheet, cash summary, A/R–A/P schedule.
   - `scenarioA.test.ts`, `scenarioB.test.ts` — the PRD §32 acceptance scenarios.
 - Game definitions: [`packages/shared/src/game/`](packages/shared/src/game)
@@ -43,20 +46,25 @@ directly from its TypeScript source (no build step required for dev).
   - `eventCards.ts` — cash-basis and accrual event decks.
 - Server game logic: [`apps/server/src/services/`](apps/server/src/services)
   - `gameService.ts` — room/team lifecycle, start gating, teacher controls.
-  - `turnService.ts` — dice, movement, landing resolution, `endTurn`.
+  - `turnService.ts` — dice, movement, landing resolution, `endTurn`,
+    `proposeTrade` / `cancelTrade`, multi-line `submitJournalEntry`.
   - `yearEndService.ts` — per-team year-end checklist (A/R, A/P, prepaids,
     snapshot, closing entries); concurrent with the turn loop via `year_end`
     pendings in `yearEndPendings[]`.
   - `accountingService.ts` — bridges game events to the shared entry rules and posts entries.
   - `stateService.ts` — projection of current game state for reads and broadcasts.
   - `sessionsService.ts` — session tokens bound to `{gameId, role, teamId}`.
+  - `adminService.ts` — env-based teacher admin login (`ADMIN_*` tokens).
   - `gameLock.ts` — per-game in-process mutex shared by REST and Socket.IO.
   - `eventLog.ts` — appends and reads `GameEvent` rows.
 - Real-time: [`apps/server/src/socket.ts`](apps/server/src/socket.ts) — Socket.IO
   rooms keyed by `roomCode`, role guards, full-state `game:state_updated` broadcasts.
 - Persistence: [`apps/server/src/db/`](apps/server/src/db)
   - `schema.ts`, `queries.ts`, `client.ts` (`node:sqlite`).
-- REST: [`apps/server/src/routes/games.ts`](apps/server/src/routes/games.ts).
+- REST: [`apps/server/src/routes/games.ts`](apps/server/src/routes/games.ts)
+  (`/trade/propose`, `/trade/cancel`, union journal submit schema).
+  [`apps/server/src/routes/admin.ts`](apps/server/src/routes/admin.ts) for
+  teacher login.
 - Client UI: [`apps/client/src/components/`](apps/client/src/components),
   [`apps/client/src/routes/`](apps/client/src/routes) (`TeamDashboard`,
   `TeacherDashboard`, `DisplayPage`, `LobbyPage`, `JoinPage`), and
@@ -98,12 +106,14 @@ Full TypeScript interfaces are in [PRD.md §18](PRD.md) and
 - **Team** — name, color, board position, current year, credit limit, active flag.
 - **BoardSpace** — index, name, type (`go`, `property`, `event`, `bank`,
   `repair`, `charity`, `road_closure`, `rest`, `tax`).
-- **Property** — board space, purchase price, rent, owner team id.
+- **Property** — board space, purchase price, rent, owner team id, houses,
+  `costBasis` (nullable; falls back to `purchasePrice` for gain/loss on resale).
 - **Account** — per-team account; type ∈ `asset | liability | equity | revenue | expense`; normal balance `debit | credit`.
 - **JournalEntry** + **JournalEntryLine** — student-submitted or auto-posted;
   carries `isCorrect` and `sourceEventId` for traceability.
 - **GameEvent** — typed record of every state change (`roll`, `move`,
   `land_property`, `rent_paid_cash`, `rent_paid_credit`, `draw_event_card`,
+  `trade_proposed`, `trade_accepted`, `trade_declined`, `trade_cancelled`,
   `year_end_started`, `teacher_override`, …). `payload` is the typed detail.
 - **CreditBalance** (accrual only) — debtor/creditor team pair, amount, source
   event, status `open | paid | rolled_to_loan`.
@@ -113,7 +123,9 @@ Full TypeScript interfaces are in [PRD.md §18](PRD.md) and
 The engine exposes pure functions (see [PRD.md §21](PRD.md)):
 
 - `getNormalBalance(accountType)`
-- `validateJournalEntry(input, expectedEntry)`
+- `validateJournalEntry(input, expectedEntry)` — two-line student form.
+- `validateJournalEntryLines(input, expectedEntry)` — fixed-slot multi-line
+  entries (order-insensitive match per debit/credit side).
 - `postJournalEntry(entry)`
 - `calculateAccountBalance(account, journalLines)`
 - `generateIncomeStatement / BalanceSheet / CashSummary / ARAPSchedule`
@@ -148,6 +160,8 @@ trail clean.
   - `game.integration.test.ts` — REST create → roll → resolve → journal → statements.
   - `accrual.integration.test.ts` — accrual rent, credit limits, deferred cards, year-end.
   - `phase5.integration.test.ts` — hints, scoring, export, end-game, clone, balance feedback.
+  - `trade.integration.test.ts` — propose/accept/decline/cancel trades, gain/loss
+    journals, cost basis, trade guards.
   - `socket.integration.test.ts` — out-of-turn rolls, broadcast fan-out, reconnect
     with token, pause blocking all mutators, `endTurn` authorization, teacher/team
     role guards.
@@ -162,8 +176,19 @@ tiles, and corner GO / Bank / Free Parking tiles. Year-end fires when a team
 **passes GO**, not when landing on a dedicated checkpoint. Rent scales with
 houses (simplified multiplier) and railroad ownership count.
 
+## Team property trading
+
+During the active team's `awaiting_end` phase (after rolling, before ending the
+turn), they may propose a buy or sell offer via `POST /:gameId/trade/propose`.
+The counterparty receives a `trade_offer` pending (`awaiting_choice`). On accept,
+ownership and `cost_basis` transfer immediately; both teams journal via the
+existing counterparty chain (responder first). The seller may need a **three-line**
+entry (Cash / Property / Gain or Loss on Sale). Mortgaged or built-up properties
+cannot be traded. *Extends beyond PRD MVP scope; see CHANGELOG.*
+
 ## Out of scope (MVP)
 
-Auctions, houses/hotels, property trading, depreciation, bad debt, inventory,
-taxes-as-accounting, AI opponents, real authentication, exact Monopoly board,
-advanced animations, cloud deployment — see [PRD.md §4.4](PRD.md).
+Auctions, depreciation, bad debt, inventory, taxes-as-accounting, AI opponents,
+exact Monopoly board artwork, advanced animations, cloud deployment — see
+[PRD.md §4.4](PRD.md). Property trading and houses/hotels are implemented but
+were originally listed as post-MVP in the PRD.

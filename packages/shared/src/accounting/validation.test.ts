@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { ExpectedEntry } from "../types.js";
 import { isAccountInMode } from "./accounts.js";
-import { getHint, validateJournalEntry } from "./validation.js";
-import { loanPrincipalRepaid, rentPaidCash } from "./entryRules.js";
+import { getHint, validateJournalEntry, validateJournalEntryLines } from "./validation.js";
+import { loanPrincipalRepaid, propertySaleSeller, rentPaidCash } from "./entryRules.js";
 import { format, setLocale } from "../i18n/index.js";
 
 const expected = (over: Partial<ExpectedEntry> = {}): ExpectedEntry => ({
@@ -81,6 +81,68 @@ describe("isAccountInMode", () => {
   it("Accounts Receivable is accrual only", () => {
     expect(isAccountInMode("Accounts Receivable", "cash")).toBe(false);
     expect(isAccountInMode("Accounts Receivable", "accrual")).toBe(true);
+  });
+});
+
+describe("validateJournalEntryLines — multi-line entries", () => {
+  const gainSeller = propertySaleSeller("t-red", 300, 200, "Boardwalk");
+
+  it("accepts correct 3-line entry (any line order)", () => {
+    const r = validateJournalEntryLines(
+      {
+        lines: [
+          { accountName: "Gain on Sale", debit: 0, credit: 100 },
+          { accountName: "Cash", debit: 300, credit: 0 },
+          { accountName: "Property", debit: 0, credit: 200 },
+        ],
+      },
+      gainSeller,
+      "cash",
+    );
+    expect(r.correct).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("rejects wrong gain amount", () => {
+    const r = validateJournalEntryLines(
+      {
+        lines: [
+          { accountName: "Cash", debit: 300, credit: 0 },
+          { accountName: "Property", debit: 0, credit: 200 },
+          { accountName: "Gain on Sale", debit: 0, credit: 50 },
+        ],
+      },
+      gainSeller,
+      "cash",
+    );
+    expect(r.correct).toBe(false);
+    expect(r.errors).toContain("wrong_amount");
+  });
+
+  it("rejects wrong line count", () => {
+    const r = validateJournalEntryLines(
+      {
+        lines: [
+          { accountName: "Cash", debit: 300, credit: 0 },
+          { accountName: "Property", debit: 0, credit: 200 },
+        ],
+      },
+      gainSeller,
+      "cash",
+    );
+    expect(r.errors).toContain("wrong_line_count");
+  });
+});
+
+describe("getHint — multi-line", () => {
+  beforeEach(() => setLocale("en"));
+
+  it("level 4 lists all accounts for 3-line seller entry", () => {
+    const e = propertySaleSeller("t-red", 300, 200, "Boardwalk");
+    const h = getHint(e, 4);
+    expect(h.key).toBe("validation.hint4Multi");
+    expect(h.params?.accounts).toContain("accounts.cash");
+    expect(h.params?.amounts).toBe("300, 200, 100");
   });
 });
 

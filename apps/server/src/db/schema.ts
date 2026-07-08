@@ -241,4 +241,9 @@ export function runMigrations(): void {
   } catch {
     // Column already present.
   }
+  try {
+    db.exec(`ALTER TABLE properties ADD COLUMN cost_basis INTEGER`);
+  } catch {
+    // Column already present.
+  }
 }

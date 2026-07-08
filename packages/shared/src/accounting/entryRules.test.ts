@@ -15,6 +15,8 @@ import {
   propertyAssignedAtSetup,
   propertyPurchase,
   buildingPurchase,
+  propertySaleSeller,
+  propertyTradeBuyer,
   repairBillPayable,
   rentPaidCash,
   rentPaidCredit,
@@ -129,5 +131,39 @@ describe("entryRules — PRD §22", () => {
     const e = buildingPurchase(PAYER, 100, "Boardwalk", "house");
     expect(e.lines[0]).toMatchObject({ accountName: "Buildings", debit: 100 });
     expect(e.lines[1]).toMatchObject({ accountName: "Cash", credit: 100 });
+  });
+
+  it("propertySaleSeller: gain case (3 lines)", () => {
+    const e = propertySaleSeller(PAYER, 300, 200, "Boardwalk");
+    expect(e.lines).toEqual([
+      { accountName: "Cash", debit: 300, credit: 0 },
+      { accountName: "Property", debit: 0, credit: 200 },
+      { accountName: "Gain on Sale", debit: 0, credit: 100 },
+    ]);
+  });
+
+  it("propertySaleSeller: loss case (3 lines)", () => {
+    const e = propertySaleSeller(PAYER, 150, 200, "Park Place");
+    expect(e.lines).toEqual([
+      { accountName: "Cash", debit: 150, credit: 0 },
+      { accountName: "Loss on Sale", debit: 50, credit: 0 },
+      { accountName: "Property", debit: 0, credit: 200 },
+    ]);
+  });
+
+  it("propertySaleSeller: equal price and book (2 lines)", () => {
+    const e = propertySaleSeller(PAYER, 200, 200, "Mediterranean Avenue");
+    expect(e.lines).toEqual([
+      { accountName: "Cash", debit: 200, credit: 0 },
+      { accountName: "Property", debit: 0, credit: 200 },
+    ]);
+  });
+
+  it("propertyTradeBuyer: Dr Property / Cr Cash", () => {
+    const e = propertyTradeBuyer(PAYER, 250, "Baltic Avenue");
+    expect(e.lines).toEqual([
+      { accountName: "Property", debit: 250, credit: 0 },
+      { accountName: "Cash", debit: 0, credit: 250 },
+    ]);
   });
 });

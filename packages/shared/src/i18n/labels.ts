@@ -21,6 +21,8 @@ const ACCOUNT_KEY_MAP: Record<string, I18nKey> = {
   "Interest Payable": "accounts.interestPayable",
   "Internet Expense": "accounts.internetExpense",
   "Maintenance Expense": "accounts.maintenanceExpense",
+  "Gain on Sale": "accounts.gainOnSale",
+  "Loss on Sale": "accounts.lossOnSale",
 };
 
 export function getAccountKey(name: string): I18nKey {
